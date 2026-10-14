@@ -1,0 +1,21 @@
+# Деплой на Render: New → Blueprint → указать репозиторий.
+# На бесплатном тарифе 512 МБ памяти — модели не поместятся, поэтому они выключены:
+# фразы разбирают правила, голос обрабатывает браузер. Для моделей нужен тариф с 8+ ГБ
+# или Hugging Face Spaces (Docker).
+services:
+  - type: web
+    name: voice-planner
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_TIMEZONE
+        value: Europe/Moscow
+      - key: LLM_BACKEND
+        value: "off"
+      - key: STT_MODEL
+        value: "off"
+      - key: TTS_SPEAKER
+        value: "off"
+      - key: EMBEDDINGS_MODEL
+        value: "off"

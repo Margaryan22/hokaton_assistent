@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+data/*.db
+data/*.db-*
+.DS_Store
+latest_silero_models.yml
+.cache/

@@ -1,0 +1,68 @@
+[
+ {
+  "backend": "rules",
+  "cases": 62,
+  "correct": 58,
+  "intent_accuracy": 0.9516129032258065,
+  "accuracy": 0.9354838709677419,
+  "latency_mean": 0.0007920793711579585,
+  "latency_p90": 0.00040591599827166647,
+  "failures": [
+   [
+    "готово, отчёт отправил",
+    [
+     "intent=unknown",
+     "query=None"
+    ]
+   ],
+   [
+    "мои дела на эту неделю",
+    [
+     "intent=unknown",
+     "period=None"
+    ]
+   ],
+   [
+    "ой, а перенеси это на четверг",
+    [
+     "refers=False"
+    ]
+   ],
+   [
+    "слушай, а с кем у меня завтра встречи?",
+    [
+     "intent=create_meeting",
+     "period=None",
+     "types=[]"
+    ]
+   ]
+  ]
+ },
+ {
+  "backend": "hybrid:qwen3-4b-2507",
+  "cases": 62,
+  "correct": 61,
+  "intent_accuracy": 1.0,
+  "accuracy": 0.9838709677419355,
+  "latency_mean": 2.1194548474349206,
+  "latency_p90": 2.6181324159988435,
+  "failures": [
+   [
+    "запланируй на следующей неделе в среду обед с партнёрами в час дня",
+    [
+     "at=12:00:00"
+    ]
+   ]
+  ]
+ },
+ {
+  "backend": "hybrid:qwen3.5-4b",
+  "cases": 62,
+  "correct": 62,
+  "intent_accuracy": 1.0,
+  "accuracy": 1.0,
+  "latency_mean": 4.120671719225826,
+  "latency_p90": 4.629396374992211,
+  "failures": []
+ }
+]

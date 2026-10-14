@@ -1,0 +1,53 @@
+[
+ {
+  "backend": "rules",
+  "cases": 25,
+  "correct": 23,
+  "intent_accuracy": 0.92,
+  "accuracy": 0.92,
+  "latency_mean": 0.0023816182819427923,
+  "latency_p90": 0.0005668750090990216,
+  "failures": [
+   [
+    "есть у меня что-то про интеграцию?",
+    [
+     "intent=unknown",
+     "query=None"
+    ]
+   ],
+   [
+    "ага, давай",
+    [
+     "intent=unknown"
+    ]
+   ]
+  ]
+ },
+ {
+  "backend": "hybrid:qwen3-4b-2507",
+  "cases": 25,
+  "correct": 25,
+  "intent_accuracy": 1.0,
+  "accuracy": 1.0,
+  "latency_mean": 2.10896109500085,
+  "latency_p90": 2.4875192500039702,
+  "failures": []
+ },
+ {
+  "backend": "hybrid:qwen3.5-4b",
+  "cases": 25,
+  "correct": 24,
+  "intent_accuracy": 1.0,
+  "accuracy": 0.96,
+  "latency_mean": 4.107729101640871,
+  "latency_p90": 4.44119470800797,
+  "failures": [
+   [
+    "сдвинь её на час раньше",
+    [
+     "shift=None"
+    ]
+   ]
+  ]
+ }
+]

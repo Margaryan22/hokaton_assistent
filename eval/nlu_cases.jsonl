@@ -1,0 +1,62 @@
+{"text": "Напомни мне завтра в 10 утра позвонить Ивану", "intent": "create_reminder", "title_has": ["позвонить", "иван"], "day": "2026-10-14", "at": "10:00"}
+{"text": "В пятницу нужно отправить отчет", "intent": "create_task", "title_has": ["отправить", "отчет"], "day": "2026-10-16"}
+{"text": "Поставь задачу купить билеты до конца недели", "intent": "create_task", "title_has": ["купить", "билет"], "day": "2026-10-18", "deadline": true}
+{"text": "Добавь встречу с командой завтра в 15:00", "intent": "create_meeting", "title_has": ["команда"], "day": "2026-10-14", "at": "15:00"}
+{"text": "В четверг в 11 у меня встреча с дизайнером", "intent": "create_meeting", "title_has": ["дизайнер"], "day": "2026-10-15", "at": "11:00"}
+{"text": "Поставь встречу с Иваном завтра", "intent": "create_meeting", "title_has": ["иван"], "day": "2026-10-14", "at": null}
+{"text": "Что у меня сегодня?", "intent": "list_events", "period": ["2026-10-13", "2026-10-13"]}
+{"text": "Есть ли у меня встречи сегодня?", "intent": "list_events", "period": ["2026-10-13", "2026-10-13"], "types": ["meeting"]}
+{"text": "Какие задачи у меня на завтра?", "intent": "list_events", "period": ["2026-10-14", "2026-10-14"]}
+{"text": "Что запланировано на эту неделю?", "intent": "list_events", "period": ["2026-10-12", "2026-10-18"]}
+{"text": "Какие планы на сегодня?", "intent": "list_events", "period": ["2026-10-13", "2026-10-13"]}
+{"text": "Покажи мои встречи на сегодня", "intent": "list_events", "period": ["2026-10-13", "2026-10-13"], "types": ["meeting"]}
+{"text": "Найди задачу про презентацию", "intent": "search", "query_has": ["презентация"]}
+{"text": "Когда у меня была встреча с Иваном?", "intent": "search", "query_has": ["иван"], "direction": "past"}
+{"text": "Я когда-то ставил задачу по договору, найди её", "intent": "search", "query_has": ["договор"]}
+{"text": "А перенеси её на завтра", "intent": "update", "refers": true, "day": "2026-10-14"}
+{"text": "закинь на послезавтра созвон с Петровым часика в четыре", "intent": "create_meeting", "title_has": ["петров"], "day": "2026-10-15", "at": "16:00"}
+{"text": "мне в четверг к стоматологу к 9 утра", "intent_any": ["create_task", "create_meeting", "create_reminder"], "title_has": ["стоматолог"], "day": "2026-10-15", "at": "09:00"}
+{"text": "в следующий вторник надо сдать квартальный отчёт", "intent": "create_task", "title_has": ["сдать", "отчет"], "day": "2026-10-20"}
+{"text": "не дай мне забыть купить молоко сегодня вечером", "intent_any": ["create_reminder", "create_task"], "title_has": ["молоко"], "day": "2026-10-13", "at": "19:00"}
+{"text": "что по планам на завтрашний день", "intent": "list_events", "period": ["2026-10-14", "2026-10-14"]}
+{"text": "покажи всё, что связано с договорами", "intent": "search", "query_has": ["договор"]}
+{"text": "у меня вроде была встреча с Анной на прошлой неделе, когда это было?", "intent": "search", "query_has": ["анна"], "direction": "past"}
+{"text": "сдвинь звонок с Петей на полчаса позже", "intent": "update", "query_has": ["петя"], "shift": 30}
+{"text": "убери из календаря планёрку в понедельник", "intent": "delete", "query_has": ["планерка"]}
+{"text": "готово, отчёт отправил", "intent": "complete", "query_has": ["отчет"]}
+{"text": "через полчаса напомни проверить духовку", "intent": "create_reminder", "title_has": ["духовка"], "day": "2026-10-13", "at": "12:30"}
+{"text": "каждый понедельник в 10 утра планёрка с командой", "intent": "create_meeting", "title_has": ["планерка"], "day": "2026-10-19", "at": "10:00", "recurrence": "weekly"}
+{"text": "запланируй на следующей неделе в среду обед с партнёрами в час дня", "intent_any": ["create_meeting", "create_task"], "title_has": ["обед", "партнер"], "day": "2026-10-21", "at": "13:00"}
+{"text": "чем я занят послезавтра?", "intent": "list_events", "period": ["2026-10-15", "2026-10-15"]}
+{"text": "есть что-нибудь на выходных?", "intent": "list_events", "period": ["2026-10-17", "2026-10-18"]}
+{"text": "сколько у меня встреч на следующей неделе", "intent": "list_events", "period": ["2026-10-19", "2026-10-25"], "types": ["meeting"]}
+{"text": "найди напоминание про врача", "intent": "search", "query_has": ["врач"]}
+{"text": "когда следующий созвон с Альфой?", "intent": "search", "query_has": ["альфа"], "direction": "future"}
+{"text": "удали встречу с Иваном в пятницу", "intent": "delete", "query_has": ["иван"]}
+{"text": "отметь задачу купить билеты как сделанную", "intent": "complete", "query_has": ["билет"]}
+{"text": "перенеси встречу с дизайнером на 16:30", "intent": "update", "query_has": ["дизайнер"], "at": "16:30"}
+{"text": "что было вчера?", "intent": "list_events", "period": ["2026-10-12", "2026-10-12"]}
+{"text": "мои дела на эту неделю", "intent": "list_events", "period": ["2026-10-12", "2026-10-18"]}
+{"text": "добавь задачу оплатить интернет до 20 числа", "intent": "create_task", "title_has": ["оплатить", "интернет"], "day": "2026-10-20", "deadline": true}
+{"text": "напомни 1 ноября поздравить маму с днём рождения", "intent": "create_reminder", "title_has": ["поздравить", "мама"], "day": "2026-11-01"}
+{"text": "встреча с инвесторами 5 ноября в 11:30", "intent": "create_meeting", "title_has": ["инвестор"], "day": "2026-11-05", "at": "11:30"}
+{"text": "поставь созвон с Олей на завтра с 14 до 15", "intent": "create_meeting", "title_has": ["оля"], "day": "2026-10-14", "at": "14:00"}
+{"text": "мне нужно до пятницы подготовить презентацию для клиента", "intent": "create_task", "title_has": ["подготовить", "презентация"], "day": "2026-10-16", "deadline": true}
+{"text": "напомни мне вечером позвонить бабушке", "intent": "create_reminder", "title_has": ["позвонить", "бабушка"], "day": "2026-10-13", "at": "19:00"}
+{"text": "какие у меня встречи были в сентябре", "intent": "list_events", "period": ["2026-09-01", "2026-09-30"], "types": ["meeting"]}
+{"text": "поищи что-нибудь про CRM", "intent": "search", "query_has": ["crm"]}
+{"text": "где у меня была задача про смету?", "intent": "search", "query_has": ["смета"]}
+{"text": "да", "intent": "confirm"}
+{"text": "нет, не надо", "intent": "deny"}
+{"text": "что ты умеешь", "intent": "help"}
+{"text": "завтра в 9 утра пробежка", "intent_any": ["create_task", "create_reminder"], "title_has": ["пробежка"], "day": "2026-10-14", "at": "09:00"}
+{"text": "назначь собеседование с кандидатом на понедельник в 12", "intent": "create_meeting", "title_has": ["собеседование", "кандидат"], "day": "2026-10-19", "at": "12:00"}
+{"text": "в субботу в 8 вечера ужин в ресторане", "intent_any": ["create_task", "create_meeting"], "title_has": ["ужин", "ресторан"], "day": "2026-10-17", "at": "20:00"}
+{"text": "ой, а перенеси это на четверг", "intent": "update", "refers": true, "day": "2026-10-15"}
+{"text": "отложи задачу про отчёт на неделю", "intent": "update", "query_has": ["отчет"], "shift": 10080}
+{"text": "сделал задачу про смету", "intent": "complete", "query_has": ["смета"]}
+{"text": "покажи напоминания на завтра", "intent": "list_events", "period": ["2026-10-14", "2026-10-14"], "types": ["reminder"]}
+{"text": "запиши на 25 октября день рождения Димы", "intent_any": ["create_task", "create_reminder", "create_meeting"], "title_has": ["дима"], "day": "2026-10-25"}
+{"text": "напомни через 3 дня продлить подписку", "intent": "create_reminder", "title_has": ["продлить", "подписка"], "day": "2026-10-16"}
+{"text": "в следующем месяце надо поменять резину", "intent": "create_task", "title_has": ["поменять", "резина"]}
+{"text": "слушай, а с кем у меня завтра встречи?", "intent": "list_events", "period": ["2026-10-14", "2026-10-14"], "types": ["meeting"]}

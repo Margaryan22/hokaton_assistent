@@ -1,0 +1,25 @@
+{"text": "в среду в полдень созвон с бухгалтерией", "intent": "create_meeting", "title_has": ["бухгалтерия"], "day": "2026-10-14", "at": "12:00"}
+{"text": "напомни послезавтра утром забрать посылку", "intent": "create_reminder", "title_has": ["забрать", "посылка"], "day": "2026-10-15", "at": "09:00"}
+{"text": "нужно до конца месяца продлить страховку", "intent": "create_task", "title_has": ["продлить", "страховка"], "day": "2026-10-31", "deadline": true}
+{"text": "добавь в календарь встречу с юристом 3 ноября в 14:30", "intent": "create_meeting", "title_has": ["юрист"], "day": "2026-11-03", "at": "14:30"}
+{"text": "через два часа напомни перезвонить Марине", "intent": "create_reminder", "title_has": ["перезвонить", "марина"], "day": "2026-10-13", "at": "14:00"}
+{"text": "в эту субботу надо отвезти машину в сервис", "intent": "create_task", "title_has": ["машина", "сервис"], "day": "2026-10-17"}
+{"text": "по пятницам в 18 созвон с командой", "intent": "create_meeting", "title_has": ["команда"], "day": "2026-10-16", "at": "18:00", "recurrence": "weekly"}
+{"text": "что у меня в четверг?", "intent": "list_events", "period": ["2026-10-15", "2026-10-15"]}
+{"text": "какие задачи на этой неделе", "intent": "list_events", "period": ["2026-10-12", "2026-10-18"]}
+{"text": "какие у меня встречи завтра", "intent": "list_events", "period": ["2026-10-14", "2026-10-14"], "types": ["meeting"]}
+{"text": "что запланировано на следующую неделю", "intent": "list_events", "period": ["2026-10-19", "2026-10-25"]}
+{"text": "что было на прошлой неделе", "intent": "list_events", "period": ["2026-10-05", "2026-10-11"]}
+{"text": "найди всё по бюджету", "intent": "search", "query_has": ["бюджет"]}
+{"text": "когда я встречался с Ольгой", "intent": "search", "query_has": ["ольга"], "direction": "past"}
+{"text": "есть у меня что-то про интеграцию?", "intent": "search", "query_has": ["интеграция"]}
+{"text": "покажи все созвоны с Вектором", "intent": "search", "query_has": ["вектор"]}
+{"text": "когда ближайшее демо проекта", "intent": "search", "query_has": ["демо"], "direction": "future"}
+{"text": "перенеси созвон с бухгалтерией на 15:00", "intent": "update", "query_has": ["бухгалтерия"], "at": "15:00"}
+{"text": "сдвинь её на час раньше", "intent": "update", "refers": true, "shift": -60}
+{"text": "удали напоминание про посылку", "intent": "delete", "query_has": ["посылка"]}
+{"text": "отмени встречу с юристом", "intent": "delete", "query_has": ["юрист"]}
+{"text": "страховку продлил, отметь", "intent": "complete", "query_has": ["страховка"]}
+{"text": "задачу про машину можно закрыть", "intent": "complete", "query_has": ["машина"]}
+{"text": "привет, что ты умеешь?", "intent": "help"}
+{"text": "ага, давай", "intent": "confirm"}

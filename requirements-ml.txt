@@ -1,0 +1,11 @@
+# Модели с Hugging Face: распознавание (GigaAM v3), синтез (Silero v5), эмбеддинги (USER2), локальная LLM (llama.cpp).
+# PyTorch для CPU ставится из индекса PyTorch, чтобы не тянуть CUDA:
+#   pip install -r requirements-ml.txt --extra-index-url https://download.pytorch.org/whl/cpu
+numpy>=1.26
+onnx-asr[cpu,hub]==0.12.0
+silero==0.5.5
+torch>=2.6
+sentence-transformers==6.1.0
+llama-cpp-python==0.3.36
+huggingface-hub>=1.0
+hf-xet>=1.0
