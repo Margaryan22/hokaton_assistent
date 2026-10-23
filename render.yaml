@@ -9,6 +9,9 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
+      # Render передаёт переменные окружения в docker build как build args: собираем лёгкий образ без ML-пакетов.
+      - key: WITH_ML
+        value: "0"
       - key: APP_TIMEZONE
         value: Europe/Moscow
       - key: LLM_BACKEND
