@@ -183,16 +183,69 @@ button, input { font: inherit; color: inherit; }
 }
 .mic svg { width: 24px; height: 24px; fill: var(--accent-text); }
 .mic:hover { transform: scale(1.05); }
-.mic.listening {
-  background: var(--danger);
-  box-shadow: 0 0 0 calc(var(--level, 0) * 14px) rgba(224, 49, 49, .25);
-  transition: box-shadow .08s linear;
-}
 .mic:disabled { opacity: .4; cursor: not-allowed; transform: none; }
 
 .send {
   padding: 12px 16px; border-radius: 12px; border: none; background: var(--accent); color: var(--accent-text);
   cursor: pointer; font-weight: 600;
+}
+
+/* Панель записи: заменяет строку ввода, пока идёт запись или распознавание. */
+.composer--recording .mic, .composer--recording #text, .composer--recording .send,
+.composer--transcribing .mic, .composer--transcribing #text, .composer--transcribing .send { display: none; }
+
+.recorder { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; outline: none; }
+.recorder[hidden] { display: none; }
+
+.rec-btn {
+  width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); transition: transform .15s;
+}
+.rec-btn svg { width: 22px; height: 22px; fill: currentColor; }
+.rec-btn:hover:not(:disabled) { transform: scale(1.05); }
+.rec-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rec-btn:disabled { opacity: .4; cursor: not-allowed; }
+.rec-done { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.rec-send { color: var(--accent); }
+
+.rec-center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rec-caption { display: flex; overflow: hidden; font-size: 12px; line-height: 15px; min-height: 15px; color: var(--muted); }
+/* Длинный промежуточный текст обрезается слева: видно последние слова. */
+.rec-caption--interim { justify-content: flex-end; white-space: nowrap; }
+.rec-caption--interim span { flex: none; }
+
+.rec-wave {
+  height: 28px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; overflow: hidden;
+}
+.rec-wave i {
+  flex: 0 0 3px; height: 100%; border-radius: 2px; background: var(--accent);
+  transform: scaleY(var(--v, .06)); transition: transform .07s linear;
+}
+.recorder--breathing .rec-wave i { animation: breathe 1.4s ease-in-out infinite; animation-delay: calc(var(--i) * -70ms); }
+@keyframes breathe { 0%, 100% { transform: scaleY(.12); } 50% { transform: scaleY(.55); } }
+
+.rec-spinner {
+  display: none; width: 22px; height: 22px; margin: 3px auto; border-radius: 50%;
+  border: 3px solid var(--border); border-top-color: var(--accent); animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.composer--transcribing .rec-wave { display: none; }
+.composer--transcribing .rec-spinner { display: block; }
+
+.rec-timer {
+  flex: none; min-width: 36px; text-align: right; font-size: 13px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.rec-timer.warn { color: var(--danger); font-weight: 600; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recorder--breathing .rec-wave i { animation: none; transform: scaleY(.3); }
+  .rec-spinner { animation-duration: 2s; }
 }
 
 .hint { margin: 0; padding: 0 20px 4px; font-size: 12px; min-height: 18px; }
@@ -223,6 +276,13 @@ button, input { font: inherit; color: inherit; }
   box-shadow: var(--shadow); border-radius: 10px; padding: 12px 14px; max-width: 320px;
 }
 .toast strong { display: block; margin-bottom: 2px; }
+.toast.error { border-left-color: var(--danger); }
+.toast-actions { display: flex; gap: 8px; margin-top: 10px; }
+.toast-actions button {
+  min-height: 36px; padding: 6px 14px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--surface-2); cursor: pointer; font-size: 13px;
+}
+.toast-actions button:first-child { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 
 .typing { display: inline-flex; gap: 4px; }
 .typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: blink 1s infinite; }
@@ -244,4 +304,10 @@ button, input { font: inherit; color: inherit; }
   .suggestions { padding: 0 16px 10px; }
   .messages { padding: 14px; }
   .field input { width: 90px; }
+  .composer { padding: 10px 12px; gap: 8px; }
+  .recorder { gap: 6px; }
+  .rec-btn { width: 40px; height: 40px; }
+  .rec-timer { min-width: 32px; font-size: 12px; }
+  .toasts { left: 12px; right: 12px; }
+  .toast { max-width: none; }
 }

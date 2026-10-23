@@ -3,11 +3,34 @@
 // Основной путь — модели на сервере: микрофон записывается здесь (AudioWorklet → 16 кГц → WAV),
 // распознаёт GigaAM v3 (POST /api/stt), озвучивает Silero (POST /api/tts).
 // Запасной путь, если серверные модели выключены, — встроенные Web Speech API и speechSynthesis.
+//
+// Оба слушателя устроены одинаково:
+//   start({ autoStop })  — начать запись; autoStop: true — остановиться самому после паузы (hands-free),
+//                          false — писать, пока пользователь не нажмёт «Готово» или «Отменить» (диктовка);
+//   finish()             — остановить запись и вернуть Promise с распознанным текстом;
+//   cancel()             — выбросить запись или перестать ждать распознавания;
+//   retry()              — повторно распознать последнюю запись (после ошибки сети или сервера);
+//   события onLevel(0..1), onInterim(text), onStateChange("idle" | "recording" | "transcribing"),
+//   onAutoStop(reason, promise) — запись остановилась сама: "silence", "limit" или "no-speech", onError(code).
+// Promise из finish()/retry() отклоняется с VoiceError: code "cancelled", "server", "network", "not-allowed"…
 
 const TARGET_RATE = 16000;
-const MAX_SECONDS = 20;          // GigaAM рассчитан на фразы до ~25 секунд
+export const MAX_SECONDS = 20;   // GigaAM рассчитан на фразы до ~25 секунд
 const SILENCE_TO_STOP = 1.1;     // секунд тишины после речи — конец фразы
 const WAIT_FOR_SPEECH = 7;       // если за это время не заговорили — останавливаемся
+
+export class VoiceError extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+
+// Promise, который не роняет «unhandled rejection», если его никто не ждёт (например, запись отменили).
+function quiet(promise) {
+  promise.catch(() => {});
+  return promise;
+}
 
 const BrowserRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const canRecord = Boolean(navigator.mediaDevices?.getUserMedia && window.AudioWorkletNode);
@@ -58,21 +81,36 @@ function encodeWav(samples, rate) {
 class ServerListener {
   constructor(handlers) {
     this.handlers = handlers;
-    this.active = false;
+    this.state = "idle";
     this.supported = canRecord;
+    this.hasLevel = true;    // есть настоящий уровень громкости для визуализации
+    this.canRetry = true;    // запись хранится, её можно отправить на распознавание ещё раз
+    this.lastWav = null;
   }
 
-  async start() {
-    if (this.active) return;
+  get active() { return this.state !== "idle"; }
+
+  // Возвращает true, если запись началась.
+  async start({ autoStop = true } = {}) {
+    if (this.state !== "idle" || this.session) return false;
     stopSpeaking();
+    const session = this.session = {};
+    let stream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch (error) {
+      if (this.session === session) this.session = null;
       this.handlers.onError?.(error.name === "NotAllowedError" ? "not-allowed" : error.message);
-      return;
+      return false;
     }
+    if (this.session !== session) {  // пока ждали разрешения, запись отменили
+      stream.getTracks().forEach((t) => t.stop());
+      return false;
+    }
+    this.stream = stream;
+    this.autoStop = autoStop;
     this.context = new AudioContext();
     const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
     await this.context.audioWorklet.addModule(url);
@@ -86,11 +124,12 @@ class ServerListener {
     this.noise = 0.01;
     this.node.port.onmessage = (event) => this.#onAudio(event.data);
     source.connect(this.node);
-    this.#setActive(true);
+    this.#setState("recording");
+    return true;
   }
 
   #onAudio(chunk) {
-    if (!this.active) return;
+    if (this.state !== "recording") return;
     this.chunks.push(chunk);
     const now = this.context.currentTime, elapsed = now - this.startedAt;
     let energy = 0;
@@ -104,50 +143,86 @@ class ServerListener {
       this.heardSpeechAt ??= now;
     }
     this.handlers.onLevel?.(Math.min(rms * 8, 1));
-    if (this.heardSpeechAt && now - this.lastLoudAt > SILENCE_TO_STOP) this.stop();
-    else if (!this.heardSpeechAt && elapsed > WAIT_FOR_SPEECH) this.cancel();
-    else if (elapsed > MAX_SECONDS) this.stop();
-  }
-
-  async stop() {
-    if (!this.active) return;
-    const audio = downsample(this.chunks, this.context.sampleRate);
-    const spoke = Boolean(this.heardSpeechAt);
-    this.#release();
-    if (!spoke) return;
-    this.handlers.onInterim?.("Распознаю…");
-    try {
-      const response = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: encodeWav(audio, TARGET_RATE) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const { text } = await response.json();
-      this.handlers.onInterim?.("");
-      if (text) this.handlers.onFinal?.(text);
-      else this.handlers.onError?.("no-speech");
-    } catch (error) {
-      this.handlers.onInterim?.("");
-      this.handlers.onError?.("server");
+    if (elapsed > MAX_SECONDS) this.#autoFinish("limit");
+    else if (!this.autoStop) return;  // диктовка: останавливает только пользователь
+    else if (this.heardSpeechAt && now - this.lastLoudAt > SILENCE_TO_STOP) this.#autoFinish("silence");
+    else if (!this.heardSpeechAt && elapsed > WAIT_FOR_SPEECH) {
+      this.cancel();
+      this.handlers.onAutoStop?.("no-speech", Promise.resolve(""));
     }
   }
 
-  cancel() {
-    this.#release();
+  #autoFinish(reason) {
+    this.handlers.onAutoStop?.(reason, this.finish());
   }
 
-  toggle() {
-    this.active ? this.stop() : this.start();
+  finish() {
+    if (this.state === "transcribing") return this.pending;
+    if (this.state !== "recording") return quiet(Promise.reject(new VoiceError("cancelled")));
+    const audio = downsample(this.chunks, this.context.sampleRate);
+    const spoke = Boolean(this.heardSpeechAt);
+    this.#release();
+    // В hands-free тишину не отправляем; в диктовке человек сам нажал «Готово» — распознаём всё, что записано.
+    if (this.autoStop && !spoke) {
+      this.#setState("idle");
+      return Promise.resolve("");
+    }
+    this.lastWav = encodeWav(audio, TARGET_RATE);
+    return this.#transcribe(this.lastWav);
+  }
+
+  retry() {
+    if (this.state !== "idle" || !this.lastWav) return quiet(Promise.reject(new VoiceError("no-audio")));
+    return this.#transcribe(this.lastWav);
+  }
+
+  // Забыть сохранённую запись (пользователь отказался повторять).
+  discard() { this.lastWav = null; }
+
+  #transcribe(wav) {
+    const controller = this.abort = new AbortController();
+    this.#setState("transcribing");
+    this.pending = quiet((async () => {
+      try {
+        const response = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: wav, signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const { text } = await response.json();
+        this.lastWav = null;
+        return (text || "").trim();
+      } catch (error) {
+        throw new VoiceError(controller.signal.aborted ? "cancelled" : "server");
+      } finally {
+        if (this.abort === controller) {
+          this.abort = null;
+          this.#setState("idle");
+        }
+      }
+    })());
+    return this.pending;
+  }
+
+  cancel() {
+    this.session = null;
+    if (this.state === "recording") this.#release();
+    if (this.abort) {
+      this.abort.abort();
+      this.abort = null;
+    }
+    this.#setState("idle");
   }
 
   #release() {
+    this.session = null;
     this.node?.port && (this.node.port.onmessage = null);
     this.stream?.getTracks().forEach((t) => t.stop());
     this.context?.close();
-    this.#setActive(false);
     this.handlers.onLevel?.(0);
   }
 
-  #setActive(value) {
-    this.active = value;
-    this.handlers.onStateChange?.(value);
+  #setState(state) {
+    if (this.state === state) return;
+    this.state = state;
+    this.handlers.onStateChange?.(state);
   }
 }
 
@@ -156,43 +231,99 @@ class ServerListener {
 class BrowserListener {
   constructor(handlers) {
     this.handlers = handlers;
-    this.active = false;
+    this.state = "idle";
     this.supported = Boolean(BrowserRecognition);
-    if (!this.supported) return;
-    this.recognition = new BrowserRecognition();
-    this.recognition.lang = "ru-RU";
-    this.recognition.interimResults = true;
-    this.recognition.continuous = false;
-    this.recognition.onresult = (event) => {
+    this.hasLevel = false;   // Web Speech не отдаёт громкость — панель покажет «дышащие» полоски
+    this.canRetry = false;   // звук остаётся внутри браузера, повторить распознавание нельзя
+  }
+
+  get active() { return this.state !== "idle" || Boolean(this.recognition); }
+
+  // autoStop: true — браузер сам заканчивает фразу на паузе; false — непрерывная диктовка до «Готово».
+  start({ autoStop = true } = {}) {
+    if (!this.supported || this.active) return Promise.resolve(false);
+    stopSpeaking();
+    this.autoStop = autoStop;
+    this.finalText = "";
+    this.interim = "";
+    this.error = null;
+    this.cancelled = false;
+    this.result = quiet(new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; }));
+    const recognition = this.recognition = new BrowserRecognition();
+    recognition.lang = "ru-RU";
+    recognition.interimResults = true;
+    recognition.continuous = !autoStop;
+    recognition.onaudiostart = () => this.#setState("recording");
+    recognition.onresult = (event) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        if (result.isFinal) handlers.onFinal?.(result[0].transcript.trim());
+        if (result.isFinal) this.finalText = `${this.finalText} ${result[0].transcript}`.trim();
         else interim += result[0].transcript;
       }
-      if (interim) handlers.onInterim?.(interim.trim());
+      this.interim = interim.trim();
+      this.handlers.onInterim?.(`${this.finalText} ${this.interim}`.trim());
     };
-    this.recognition.onerror = (event) => {
-      if (event.error !== "aborted") handlers.onError?.(event.error);
+    recognition.onerror = (event) => {
+      if (event.error !== "aborted" && event.error !== "no-speech") this.error = event.error;
     };
-    this.recognition.onend = () => this.#setActive(false);
-  }
-
-  start() {
-    if (!this.supported || this.active) return;
-    stopSpeaking();
+    recognition.onend = () => this.#onEnd(recognition);
+    this.limitTimer = setTimeout(() => {
+      if (this.state === "recording") this.handlers.onAutoStop?.("limit", this.finish());
+    }, MAX_SECONDS * 1000);
     try {
-      this.recognition.start();
-      this.#setActive(true);
-    } catch { /* уже идёт */ }
+      recognition.start();
+    } catch {
+      this.recognition = null;
+      return Promise.resolve(false);
+    }
+    return Promise.resolve(true);
   }
 
-  stop() { if (this.active) this.recognition.stop(); }
-  toggle() { this.active ? this.stop() : this.start(); }
+  #onEnd(recognition) {
+    if (recognition !== this.recognition) return;
+    // Chrome сам обрывает долгую непрерывную сессию — в диктовке молча продолжаем запись.
+    if (this.state === "recording" && !this.autoStop && !this.error && !this.cancelled) {
+      try { recognition.start(); return; } catch { /* не вышло — завершаем как обычно */ }
+    }
+    clearTimeout(this.limitTimer);
+    this.recognition = null;
+    const wasRecording = this.state === "recording";
+    // Результат ждёт тот, кто нажал «Готово», или получит обработчик автоостановки.
+    const awaited = this.state === "transcribing" || (wasRecording && this.autoStop);
+    const text = this.finalText || this.interim;
+    this.#setState("idle");
+    if (this.cancelled) this.reject(new VoiceError("cancelled"));
+    else if (this.error && !text) {
+      this.reject(new VoiceError(this.error));
+      if (!awaited) this.handlers.onError?.(this.error);
+    } else this.resolve(text);
+    // В hands-free браузер сам закончил фразу на паузе — для приложения это автоостановка.
+    if (wasRecording && this.autoStop && !this.cancelled) this.handlers.onAutoStop?.("silence", this.result);
+  }
 
-  #setActive(value) {
-    this.active = value;
-    this.handlers.onStateChange?.(value);
+  finish() {
+    if (!this.recognition) return quiet(Promise.reject(new VoiceError("cancelled")));
+    if (this.state === "recording") {
+      this.#setState("transcribing");
+      this.recognition.stop();  // финальные результаты придут до onend
+    }
+    return this.result;
+  }
+
+  cancel() {
+    if (!this.recognition) return;
+    this.cancelled = true;
+    this.recognition.abort();
+  }
+
+  retry() { return quiet(Promise.reject(new VoiceError("no-audio"))); }
+  discard() {}
+
+  #setState(state) {
+    if (this.state === state) return;
+    this.state = state;
+    this.handlers.onStateChange?.(state);
   }
 }
 

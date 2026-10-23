@@ -1,10 +1,13 @@
-import { createListener, speak } from "/static/voice.js";
+import { actionFor, appendToInput, formatTimer } from "/static/input.js";
+import { createListener, MAX_SECONDS, speak } from "/static/voice.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
   messages: $("messages"), text: $("text"), composer: $("composer"), mic: $("mic"), hint: $("hint"),
   status: $("status"), user: $("user"), reset: $("reset"), tts: $("tts-toggle"), agenda: $("agenda"),
   ics: $("ics"), toasts: $("toasts"), suggestions: $("suggestions"), models: $("models"),
+  recorder: $("recorder"), recCancel: $("rec-cancel"), recDone: $("rec-done"), recSend: $("rec-send"),
+  recCaption: $("rec-caption-text"), recWave: $("rec-wave"), recTimer: $("rec-timer"), recStatus: $("rec-status"),
 };
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const store = {
@@ -123,7 +126,7 @@ async function send(text, viaVoice = false) {
 function respondAloud(reply) {
   // Если ассистент ждёт ответа, а пользователь говорил голосом, — сразу слушаем дальше.
   const continueListening = () => {
-    if (reply.awaiting && lastInputWasVoice) listener?.start();
+    if (reply.awaiting && lastInputWasVoice) startRecording("handsfree");
   };
   if (ttsEnabled) speak(reply.speech, { server: voice.serverTts, onEnd: continueListening });
   else continueListening();
@@ -181,11 +184,22 @@ function renderAgenda(items) {
 
 // --- напоминания -------------------------------------------------------------
 
-function toast(title, body) {
-  const node = el("div", "toast");
+function toast(title, body, actions = []) {
+  const node = el("div", `toast${actions.length ? " error" : ""}`);
   node.append(el("strong", "", title), el("span", "", body));
+  if (actions.length) {
+    const row = el("div", "toast-actions");
+    for (const { label, run } of actions) {
+      const button = el("button", "", label);
+      button.type = "button";
+      button.addEventListener("click", () => { node.remove(); run(); });
+      row.append(button);
+    }
+    node.append(row);
+  }
   els.toasts.append(node);
-  setTimeout(() => node.remove(), 15000);
+  setTimeout(() => node.remove(), actions.length ? 60000 : 15000);
+  return node;
 }
 
 async function checkReminders() {
@@ -204,35 +218,177 @@ async function checkReminders() {
 
 // --- инициализация -----------------------------------------------------------
 
+// --- голосовой ввод ------------------------------------------------------------
+//
+// Диктовка (🎤): запись идёт, пока пользователь не нажмёт ✓ (текст вставится в поле), ➤ (вставится и уйдёт
+// в чат) или ✕ (запись выброшена). Hands-free — после голосового вопроса ассистента: запись останавливается
+// на паузе, и ответ уходит сам. Состояния ввода приходят от слушателя: idle → recording → transcribing → idle.
+
+const BAR_COUNT = 120;  // с запасом на широкий экран: лишние полоски обрезаются слева
+const BAR_STEP_MS = 70;
+const ERROR_MESSAGES = {
+  "not-allowed": "Нет доступа к микрофону — разрешите его в настройках браузера.",
+  "no-speech": "Ничего не расслышал. Попробуйте ещё раз.",
+  network: "Распознавание речи недоступно: нет сети.",
+  server: "Сервер не смог распознать запись. Попробуйте ещё раз или напишите текстом.",
+};
+const rec = { state: "idle", mode: "dictation", startedAt: 0, frame: 0, peak: 0, levels: [], lastBar: 0, warned: false, interim: "" };
+
+function initWave() {
+  els.recWave.replaceChildren(...Array.from({ length: BAR_COUNT }, (_, i) => {
+    const bar = document.createElement("i");
+    bar.style.setProperty("--i", String(BAR_COUNT - i));
+    return bar;
+  }));
+}
+
+function announce(text) {
+  els.recStatus.textContent = text;
+}
+
+// Промежуточный текст Web Speech — одной строкой, обрезанной слева; иначе короткая подпись режима.
+function setCaption() {
+  els.recCaption.parentElement.classList.toggle("rec-caption--interim", Boolean(rec.interim));
+  els.recCaption.textContent = rec.interim
+    || (rec.mode === "handsfree" ? "Слушаю ответ… замолчите, чтобы отправить" : "Говорите…");
+}
+
+function focusInputEnd() {
+  els.text.focus();
+  const end = els.text.value.length;
+  els.text.setSelectionRange(end, end);
+}
+
+function renderRecorder(state) {
+  const previous = rec.state;
+  rec.state = state;
+  els.recorder.hidden = state === "idle";
+  els.composer.classList.toggle("composer--recording", state === "recording");
+  els.composer.classList.toggle("composer--transcribing", state === "transcribing");
+  els.recorder.classList.toggle("recorder--breathing", state === "recording" && !listener.hasLevel);
+  els.recDone.disabled = els.recSend.disabled = state !== "recording";
+  // В hands-free ✓ и так отправляет сразу — отдельная ➤ не нужна.
+  els.recSend.hidden = rec.mode === "handsfree";
+  els.recDone.setAttribute("aria-label", rec.mode === "handsfree" ? "Отправить" : "Готово");
+  cancelAnimationFrame(rec.frame);
+
+  if (state === "recording") {
+    Object.assign(rec, { startedAt: performance.now(), peak: 0, lastBar: 0, warned: false, interim: "" });
+    rec.levels = new Array(BAR_COUNT).fill(0.06);
+    for (const bar of els.recWave.children) bar.style.setProperty("--v", "0.06");
+    els.recTimer.textContent = formatTimer(0);
+    els.hint.textContent = rec.mode === "handsfree"
+      ? "✓ — отправить сейчас, ✕ или Esc — отменить."
+      : "✓ или Enter — вставить текст в поле, ➤ — отправить сразу, ✕ или Esc — отменить.";
+    setCaption();
+    announce(rec.mode === "handsfree" ? "Слушаю ответ" : "Запись началась");
+    els.recorder.focus();
+    rec.frame = requestAnimationFrame(tick);
+  } else if (state === "transcribing") {
+    els.recCaption.textContent = "Распознаю…";
+    announce("Распознаю");
+  } else {
+    els.recTimer.classList.remove("warn");
+    els.hint.textContent = els.hint.dataset.idle || "";
+    announce("");
+    if (previous !== "idle" && rec.mode === "dictation") focusInputEnd();
+  }
+}
+
+function tick(now) {
+  const elapsed = (now - rec.startedAt) / 1000;
+  els.recTimer.textContent = formatTimer(elapsed);
+  const warn = elapsed >= MAX_SECONDS - 5;
+  els.recTimer.classList.toggle("warn", warn);
+  if (warn && !rec.warned) {
+    rec.warned = true;
+    announce("Осталось 5 секунд записи");
+  }
+  // Полоски бегут справа налево: новое значение громкости — справа.
+  if (listener.hasLevel && now - rec.lastBar >= BAR_STEP_MS) {
+    rec.lastBar = now;
+    rec.levels.push(Math.max(0.06, rec.peak));
+    rec.levels.shift();
+    rec.peak = 0;
+    const bars = els.recWave.children;
+    for (let i = 0; i < bars.length; i++) bars[i].style.setProperty("--v", rec.levels[i].toFixed(2));
+  }
+  rec.frame = requestAnimationFrame(tick);
+}
+
+async function startRecording(mode) {
+  if (!listener?.supported || rec.state !== "idle") return;
+  rec.mode = mode;
+  await listener.start({ autoStop: mode === "handsfree" });
+}
+
+// Кнопка или клавиша → действие для текущего состояния ввода (таблица в input.js).
+function handleInput(event) {
+  const action = actionFor(rec.state, event);
+  if (!action || !listener) return false;
+  if (action === "start") startRecording("dictation");
+  else if (action === "cancel") listener.cancel();
+  else if (action === "finish") complete(listener.finish(), { sendNow: rec.mode === "handsfree" });
+  else if (action === "finishAndSend") complete(listener.finish(), { sendNow: true });
+  return true;
+}
+
+// Распознанный текст дописывается в поле; при sendNow — сразу уходит в чат.
+async function complete(result, { sendNow = false, note = "" } = {}) {
+  let text;
+  try {
+    text = await result;
+  } catch (error) {
+    if (error.code !== "cancelled" && error.code !== "no-audio") showSttError(error.code, sendNow);
+    return;
+  }
+  if (!text) {
+    els.hint.textContent = ERROR_MESSAGES["no-speech"];
+    return;
+  }
+  const full = appendToInput(els.text.value, text);
+  if (sendNow) {
+    send(full, true);
+    return;
+  }
+  els.text.value = full;
+  focusInputEnd();
+  if (note) els.hint.textContent = note;
+}
+
+function showSttError(code, sendNow) {
+  if (!listener.canRetry || code === "not-allowed") {
+    els.hint.textContent = ERROR_MESSAGES[code] || `Ошибка распознавания: ${code}`;
+    return;
+  }
+  // Запись не теряем: её можно отправить на распознавание ещё раз.
+  toast("Не удалось распознать", "Запись сохранена — можно попробовать ещё раз.", [
+    { label: "Повторить", run: () => { if (rec.state === "idle") complete(listener.retry(), { sendNow }); } },
+    { label: "Отмена", run: () => listener.discard() },
+  ]);
+}
+
+function onAutoStop(reason, result) {
+  if (reason === "limit") complete(result, { sendNow: rec.mode === "handsfree", note: "Достигнут лимит записи." });
+  else if (reason === "silence") complete(result, { sendNow: true });
+}
+
 function buildListener() {
   listener = createListener({
     server: voice.serverStt,
-    onInterim: (text) => { els.text.value = text; },
-    onFinal: (text) => send(text, true),
-    onLevel: (level) => els.mic.style.setProperty("--level", level.toFixed(2)),
-    onStateChange: (active) => {
-      els.mic.classList.toggle("listening", active);
-      els.mic.setAttribute("aria-label", active ? "Остановить запись" : "Говорить");
-      els.hint.textContent = active
-        ? (voice.serverStt ? "Слушаю… запись остановится сама, когда вы замолчите" : "Слушаю… говорите")
-        : els.hint.dataset.idle || "";
+    onInterim: (text) => {
+      rec.interim = text;
+      if (rec.state === "recording") setCaption();
     },
-    onError: (error) => {
-      const messages = {
-        "not-allowed": "Нет доступа к микрофону — разрешите его в настройках браузера.",
-        "no-speech": "Не расслышал. Попробуйте ещё раз.",
-        network: "Распознавание речи недоступно: нет сети.",
-        server: "Сервер не смог распознать запись. Попробуйте ещё раз или напишите текстом.",
-      };
-      els.hint.textContent = messages[error] || `Ошибка распознавания: ${error}`;
-    },
+    onLevel: (level) => { rec.peak = Math.max(rec.peak, level); },
+    onStateChange: renderRecorder,
+    onAutoStop,
+    onError: (error) => { els.hint.textContent = ERROR_MESSAGES[error] || `Ошибка распознавания: ${error}`; },
   });
   els.mic.disabled = !listener.supported;
   els.hint.dataset.idle = !listener.supported
     ? "Голосовой ввод в этом браузере недоступен — можно писать текстом."
-    : voice.serverStt
-      ? "Нажмите на микрофон (или пробел) и говорите — распознаёт GigaAM на сервере."
-      : "Нажмите на микрофон и говорите — или напишите запрос.";
+    : "Нажмите на микрофон (или пробел) и говорите: текст появится в поле, его можно поправить перед отправкой.";
   if (!listener.active) els.hint.textContent = els.hint.dataset.idle;
 }
 
@@ -267,8 +423,11 @@ function greet() {
 els.composer.addEventListener("submit", (event) => { event.preventDefault(); send(els.text.value); });
 els.mic.addEventListener("click", () => {
   if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
-  listener?.toggle();
+  handleInput("mic");
 });
+els.recCancel.addEventListener("click", () => handleInput("cancel"));
+els.recDone.addEventListener("click", () => handleInput("done"));
+els.recSend.addEventListener("click", () => handleInput("sendNow"));
 els.suggestions.addEventListener("click", (event) => {
   if (event.target.tagName === "BUTTON") send(event.target.textContent);
 });
@@ -289,13 +448,22 @@ document.querySelectorAll(".tabs button").forEach((tab) => tab.addEventListener(
   loadAgenda();
 }));
 document.addEventListener("keydown", (event) => {
-  // Пробел вне поля ввода — начать/остановить запись.
-  if (event.code === "Space" && document.activeElement !== els.text && document.activeElement !== els.user) {
-    event.preventDefault();
-    listener?.toggle();
+  if (event.isComposing) return;
+  // На кнопке панели записи Enter и пробел нажимают саму кнопку (например, ✕).
+  const onRecorderButton = Boolean(event.target.closest?.(".rec-btn"));
+  if (event.key === "Escape") {
+    if (handleInput("escape")) event.preventDefault();
+  } else if (event.key === "Enter" && !onRecorderButton) {
+    // Во время записи Enter — «Готово»; в обычном поле Enter по-прежнему отправляет форму.
+    if (handleInput("enter")) event.preventDefault();
+  } else if (event.code === "Space" && !onRecorderButton
+             && document.activeElement !== els.text && document.activeElement !== els.user) {
+    // Пробел вне поля ввода — начать диктовку или закончить её.
+    if (handleInput("space")) event.preventDefault();
   }
 });
 
+initWave();
 els.ics.href = `/api/calendar.ics?user_id=${encodeURIComponent(userId())}`;
 greet();
 loadStatus().then(() => setTts(ttsEnabled));

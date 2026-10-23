@@ -46,6 +46,24 @@
         </button>
         <input id="text" placeholder="Скажите или напишите: «Что у меня завтра?»" maxlength="1000" aria-label="Запрос">
         <button class="send" type="submit" aria-label="Отправить">Отправить</button>
+        <div class="recorder" id="recorder" tabindex="-1" hidden>
+          <button class="rec-btn rec-cancel" id="rec-cancel" type="button" aria-label="Отменить запись" title="Отменить (Esc)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z"/></svg>
+          </button>
+          <div class="rec-center">
+            <div class="rec-caption" id="rec-caption"><span id="rec-caption-text"></span></div>
+            <div class="rec-wave" id="rec-wave" aria-hidden="true"></div>
+            <span class="rec-spinner" aria-hidden="true"></span>
+          </div>
+          <span class="rec-timer" id="rec-timer" role="timer" aria-label="Длительность записи">0:00</span>
+          <button class="rec-btn rec-done" id="rec-done" type="button" aria-label="Готово" title="Готово — вставить текст (Enter)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>
+          </button>
+          <button class="rec-btn rec-send" id="rec-send" type="button" aria-label="Отправить сразу" title="Отправить сразу">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10.1 15 12 3.4 13.9z"/></svg>
+          </button>
+          <span class="visually-hidden" id="rec-status" aria-live="polite"></span>
+        </div>
       </form>
       <p class="hint muted" id="hint"></p>
       <p class="models muted" id="models"></p>
