@@ -32,6 +32,9 @@ DAYPART_DEFAULTS = {"утро": time(9, 0), "день": time(13, 0), "вечер
 _NUM = r"(?P<n>\d+(?:\.\d+)?)"
 _B = r"(?<![\w:.])"  # начало слова/числа
 _E = r"(?![\w:])"    # конец слова/числа
+_APPROX_WORDS = r"(?:часик(?:а|ов)?|где-то|примерно|около|ориентировочно)"
+_APPROX_BEFORE_RE = re.compile(r"(?<![\w-])(?:" + _APPROX_WORDS + r" )+$")
+_APPROX_AFTER_RE = re.compile(r"^ часик(?:а|ов)?(?![\w-])")
 
 
 @dataclass
@@ -150,8 +153,17 @@ class WhenExtractor:
                     start, end = match.span()
                     when.spans.append((start, end))
                     work = work[:start] + " " * (end - start) + work[end:]
+        when.spans = [self._widen(tt.text, span) for span in when.spans]
         self._finalize(when)
         return when
+
+    @staticmethod
+    def _widen(text: str, span: tuple[int, int]) -> tuple[int, int]:
+        """«часика в четыре», «где-то в 3»: разговорные слова при времени — часть времени, а не названия."""
+        start, end = span
+        before = _APPROX_BEFORE_RE.search(text[:start])
+        after = _APPROX_AFTER_RE.match(text[end:])
+        return (before.start() if before else start, end + after.end() if after else end)
 
     # --- правила --------------------------------------------------------------
 

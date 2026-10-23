@@ -165,6 +165,25 @@ def test_create_without_trigger_is_implicit():
     assert parse("каждый понедельник в 10 планёрка").implicit
 
 
+@pytest.mark.parametrize("text, intent, title, day, at", [
+    ("закинь на послезавтра созвон с Петровым часика в четыре", Intent.CREATE_MEETING, "Созвон с Петровым",
+     date(2026, 10, 25), time(16, 0)),
+    ("кинь на завтра где-то в 3 звонок бухгалтеру", Intent.CREATE_TASK, "Звонок бухгалтеру",
+     date(2026, 10, 24), time(15, 0)),
+    ("впиши на понедельник купить корм", Intent.CREATE_TASK, "Купить корм", date(2026, 10, 26), None),
+    ("черкни в среду примерно в 11 созвон с Олей", Intent.CREATE_MEETING, "Созвон с Олей", date(2026, 10, 28), time(11, 0)),
+    ("зафиксируй на завтра ориентировочно к 9 отправить договор", Intent.CREATE_TASK, "Отправить договор",
+     date(2026, 10, 24), time(9, 0)),
+    ("забей на завтра около 10 часиков забрать документы", Intent.CREATE_TASK, "Забрать документы",
+     date(2026, 10, 24), time(10, 0)),
+    ("поставь-ка задачу купить билеты на завтра", Intent.CREATE_TASK, "Купить билеты", date(2026, 10, 24), None),
+])
+def test_colloquial_create_triggers_and_fuzzy_time(text, intent, title, day, at):
+    cmd = parse(text, now=FRIDAY)
+    assert cmd.intent == intent and not cmd.implicit
+    assert (cmd.title, cmd.day, cmd.at) == (title, day, at)
+
+
 def test_more_update_forms():
     cmd = parse("перенеси встречу на завтра на 11")
     assert (cmd.day, cmd.at) == (date(2026, 10, 14), time(11, 0))
