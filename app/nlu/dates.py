@@ -112,6 +112,8 @@ class WhenExtractor:
             (re.compile(_B + r"(?:(?P<prep>во|в|на|к|до|с) )?(?:(?P<mod>эт(?:от|у|о)|следующ(?:ий|ую|ее)|ближайш(?:ий|ую|ее)|прошл(?:ый|ую|ое)) )?" + _WEEKDAY_RE + _E), self._weekday_rule),
             (re.compile(_B + r"(?P<kind>до|к) конц[ау] (?P<what>(?:этой |текущей |следующей )?недели|(?:этого |текущего |следующего )?месяца|(?:этого |текущего )?года|дня)" + _E), self._end_of_rule),
             (re.compile(_B + r"(?:на|в течение|в течении|за|для)? ?(?P<mod>эт(?:ой|у|а)|текущ(?:ей|ую|ая)|следующ(?:ей|ую|ая)|прошл(?:ой|ую|ая)|предыдущ(?:ей|ую|ая)) недел(?:е|ю|и|я)" + _E), self._week_rule),
+            # «что там на неделе» — эта неделя
+            (re.compile(_B + r"(?:на|в течение|в течении) неделе" + _E), self._week_rule),
             (re.compile(_B + r"(?:на|в|за)? ?(?P<mod>эт(?:ом|от)|текущ(?:ем|ий)|следующ(?:ем|ий)|прошл(?:ом|ый)|предыдущ(?:ем|ий)) месяц[еау]?" + _E), self._month_rule),
             (re.compile(_B + r"(?:на|в|за)? ?(?P<mod>эт(?:ом|от)|текущ(?:ем|ий)|следующ(?:ем|ий)|прошл(?:ом|ый)) год[уа]?" + _E), self._year_rule),
             (re.compile(_B + r"(?:в|на|за) (?P<y>\d{4}) (?:году|год)" + _E), self._explicit_year_rule),
@@ -321,7 +323,7 @@ class WhenExtractor:
         when.period = Period(self.today, end, label)
 
     def _week_rule(self, match: re.Match[str], when: When) -> None:
-        mod = match.group("mod")
+        mod = match.groupdict().get("mod") or ""
         monday, sunday = week_bounds(self.today)
         if mod.startswith("следующ"):
             when.period = Period(monday + timedelta(days=7), sunday + timedelta(days=7), "на следующей неделе")

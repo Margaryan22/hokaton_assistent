@@ -3,7 +3,7 @@ from datetime import date, time
 from app.core.models import Period, Recurrence, RecordType, Status
 from app.services.assistant import Assistant
 from app.storage.repository import DialogStateRepository
-from tests.conftest import NOW, Dialog
+from tests.conftest import FRIDAY, NOW, Dialog
 
 
 def records(dialog):
@@ -83,6 +83,34 @@ def test_reminder_time_answer(clean_dialog):
     clean_dialog.say("в 8 вечера")
     (record,) = records(clean_dialog)
     assert (record.type, record.title, record.at) == (RecordType.REMINDER, "Купить молоко", time(20, 0))
+
+
+def test_unclear_phrase_with_date_is_not_a_task(empty_container):
+    dialog = Dialog(empty_container, user="tester", now=FRIDAY)
+    reply = dialog.say("чё по планам на завтра")
+    assert reply.intent == "list_events" and records(dialog) == []
+
+
+def test_implicit_create_of_non_action_asks_first(empty_container):
+    dialog = Dialog(empty_container, user="tester", now=FRIDAY)
+    reply = dialog.say("завтра Петров")
+    assert reply.text.startswith("Создать задачу «Петров» на завтра") and reply.awaiting == "confirm"
+    assert records(dialog) == []
+    assert dialog.say("нет").text == "Хорошо, не создаю. Что сделать?"
+    assert records(dialog) == []
+    dialog.say("завтра Петров")
+    assert "Петров" in dialog.say("да").text
+    (record,) = records(dialog)
+    assert (record.title, record.day) == ("Петров", date(2026, 10, 24))
+
+
+def test_implicit_create_of_action_is_silent(empty_container):
+    dialog = Dialog(empty_container, user="tester", now=FRIDAY)
+    assert dialog.say("мне надо в субботу забрать посылку").awaiting is None
+    assert dialog.say("в среду отчёт").awaiting is None
+    assert {(r.title, r.day) for r in records(dialog)} == {
+        ("Забрать посылку", date(2026, 10, 24)), ("Отчёт", date(2026, 10, 28)),
+    }
 
 
 def test_past_time_today_is_moved_to_tomorrow_on_confirm(clean_dialog):

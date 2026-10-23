@@ -19,7 +19,7 @@ from app.core.commands import (
     CREATE_INTENTS, INTENT_TO_TYPE, Direction, Intent, ParsedCommand, command_from_dict, command_to_dict,
 )
 from app.core.models import Occurrence, Record, RecordType, Status
-from app.nlu.rules import THANKS_RE
+from app.nlu.rules import THANKS_RE, looks_like_action
 from app.nlu.service import NLU
 from app.services import phrases as ph
 from app.services.planner import Planner
@@ -216,6 +216,9 @@ class Assistant:
     @staticmethod
     def _merge(draft: ParsedCommand, answer: ParsedCommand, missing: str | None) -> ParsedCommand:
         merged = copy.deepcopy(draft)
+        if missing == "title":
+            # Пользователь сам ответил, что нужно сделать, — переспрашивать «создать?» незачем.
+            merged.implicit = False
         if answer.title and (missing == "title" or not merged.title):
             merged.title = answer.title
         elif missing == "title" and not merged.title and answer.raw_text and not answer.has_when:
@@ -258,6 +261,7 @@ class Assistant:
             # Вместо «да/нет» назвали другое время: «давай на 17:00».
             turn.clear_pending()
             merged = self._merge(draft, cmd, "time")
+            merged.implicit = False
             if action == "update":
                 return self._apply_update(record, merged, turn)
             return self._create(merged, turn, skip_past=action == "create_tomorrow" and cmd.day is not None)
@@ -272,6 +276,11 @@ class Assistant:
             draft.at = None
             question = "Хорошо. На какое время тогда поставить?"
             return self._ask(turn, "slot", question, command=command_to_dict(draft), missing="time")
+        if action == "create_implicit":
+            if not yes:
+                return Reply("Хорошо, не создаю. Что сделать?")
+            draft.implicit = False
+            return self._create(draft, turn)
         if action == "create_tomorrow":
             if yes:
                 draft.day = draft.day + timedelta(days=1)
@@ -350,6 +359,13 @@ class Assistant:
         if draft.at is not None and draft.day is None:
             # Время без даты — ближайшее: сегодня, если ещё не прошло, иначе завтра.
             draft.day = turn.today if datetime.combine(turn.today, draft.at) > turn.now else turn.today + timedelta(days=1)
+
+        if draft.implicit and not looks_like_action(draft.title):
+            # «завтра Петров» — может, это и не просьба создать запись: переспрашиваем.
+            preview = Record(type=record_type, title=draft.title, user_id=turn.user_id, day=draft.day, at=draft.at,
+                             is_deadline=draft.is_deadline, recurrence=draft.recurrence)
+            question = f"Создать {ph.describe(preview, turn.today)}?"
+            return self._ask(turn, "confirm", question, action="create_implicit", command=command_to_dict(draft))
 
         if not skip_past and draft.day == turn.today and draft.at and not draft.recurrence:
             if datetime.combine(draft.day, draft.at) < turn.now:

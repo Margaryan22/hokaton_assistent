@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 CSV = ROOT / "data" / "voice_assistant_events.csv"
 # Вторник, 13 октября 2026, полдень.
 NOW = datetime(2026, 10, 13, 12, 0)
+# Пятница, 23 октября 2026, 12:30 — «сейчас» в сценариях из разборов багов.
+FRIDAY = datetime(2026, 10, 23, 12, 30)
 
 
 def make_settings(seed: bool = True) -> Settings:

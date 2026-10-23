@@ -137,6 +137,14 @@ def test_rules_win_when_llm_does_not_understand():
     assert cmd.source == "rules" and cmd.intent == Intent.LIST
 
 
+def test_implicit_rules_create_does_not_override_llm():
+    nlu = NLU(RuleBasedParser(), local_parser(answer(intent="unknown")))
+    cmd = nlu.parse("завтра Петров", now=NOW)
+    assert cmd.source == "local" and cmd.intent == Intent.UNKNOWN
+    cmd = nlu.parse("поставь задачу Петров на завтра", now=NOW)
+    assert cmd.source == "rules" and cmd.intent == Intent.CREATE_TASK
+
+
 def test_llm_result_is_used_when_confident():
     nlu = NLU(RuleBasedParser(), local_parser(answer(intent="complete", target="отчёт", direction="any")))
     cmd = nlu.parse("готово, отчёт отправил", now=NOW)

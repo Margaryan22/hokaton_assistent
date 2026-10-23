@@ -73,6 +73,8 @@ class ParsedCommand:
     # «вторую», «номер 3» — выбор из предложенного списка (с единицы).
     selection: int | None = None
     source: str = "rules"
+    # Создание угадано без явного триггера («завтра Петров»): ассистент может переспросить.
+    implicit: bool = False
 
     @property
     def has_when(self) -> bool:
@@ -99,6 +101,7 @@ def command_to_dict(cmd: ParsedCommand) -> dict:
         "refers_to_previous": cmd.refers_to_previous,
         "selection": cmd.selection,
         "source": cmd.source,
+        "implicit": cmd.implicit,
     }
 
 
@@ -122,4 +125,5 @@ def command_from_dict(data: dict) -> ParsedCommand:
         refers_to_previous=bool(data.get("refers_to_previous")),
         selection=data.get("selection"),
         source=data.get("source", "rules"),
+        implicit=bool(data.get("implicit")),
     )

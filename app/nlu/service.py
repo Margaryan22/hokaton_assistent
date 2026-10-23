@@ -50,9 +50,10 @@ class NLU:
             log.warning("LLM недоступна, разбираю правилами: %s", exc)
             return self._rules(text, now, awaiting)
         # Если модель не поняла команду (или «ответила» без вопроса), а правила уверенно её узнали — верим правилам.
+        # Создание, угаданное правилами без явного триггера («завтра Петров»), уверенным не считается.
         if cmd.intent in (Intent.UNKNOWN, Intent.HELP) or (cmd.intent == Intent.ANSWER and not awaiting):
             fallback = self._rules(text, now, awaiting)
-            if fallback.intent not in (Intent.UNKNOWN, Intent.HELP, Intent.ANSWER):
+            if fallback.intent not in (Intent.UNKNOWN, Intent.HELP, Intent.ANSWER) and not fallback.implicit:
                 return fallback
         return cmd
 

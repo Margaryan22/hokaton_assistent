@@ -56,7 +56,9 @@ TRIGGERS: list[tuple[str, re.Pattern[str]]] = [
                    "записывала", r"была? ли", r"были ли", r"было ли")),
     ("query", _rx("что", "чем", "какие", "какая", "какой", "каких", "покажи", "показать", "выведи", "расскажи",
                   "список", r"есть ли", r"есть что(?:-нибудь|-то)?", r"что-нибудь", "сколько", "свободен",
-                  "свободна", "занят", "занята", "расписание", "планы")),
+                  "свободна", "занят", "занята", "расписание", "планы",
+                  # Разговорное: «чё по планам на завтра», «чо там на неделе», «какие дела».
+                  r"ч[ео] (?:по|там|у меня|на)", r"какие дела")),
     ("reminder", REMINDER_RE),
     ("create", CREATE_RE),
 ]
@@ -105,7 +107,15 @@ QUERY_STOPWORDS = {
     "найти", "поискать", "сделать", "заплан", "мочь", "хотеть", "мой", "ставить", "создавать", "добавлять",
     "записывать", "вспомнить", "есть", "быть", "когда", "где", "ли", "либо", "нибудь", "поиск",
     "все", "последний", "раз", "ну", "слушать", "глянуть", "окей", "там", "тут", "вот", "что-нибудь",
-    "что-то", "кое-что", "происходить", "ожидать", "интересный",
+    "что-то", "кое-что", "происходить", "ожидать", "интересный", "кто",
+}
+# Существительные, которые сами по себе — понятное дело: «в среду отчёт», «завтра звонок».
+TASK_LIKE_NOUNS = {
+    "отчет", "звонок", "встреча", "созвон", "планерка", "совещание", "митинг", "собрание", "переговоры",
+    "конференция", "демо", "стендап", "интервью", "собеседование", "презентация", "доклад", "письмо", "рассылка",
+    "покупка", "оплата", "платеж", "визит", "прием", "тренировка", "экзамен", "дедлайн", "задача", "напоминание",
+    "уборка", "ремонт", "обед", "ужин", "завтрак", "поездка", "командировка", "отпуск", "релиз",
+    "ревью", "код-ревью", "сдача", "защита", "дежурство", "занятие", "урок", "лекция", "семинар", "вебинар",
 }
 COMPLETE_WORDS = {
     "как", "выполненной", "выполненную", "выполненным", "выполненное", "выполнена", "выполнено", "выполнен",
@@ -133,6 +143,20 @@ def is_topic(token: Token) -> bool:
 
 def has_topic(text: str) -> bool:
     return any(is_topic(t) for t in TokenText.from_text(text).tokens)
+
+
+def looks_like_action(title: str) -> bool:
+    """Название похоже на дело: начинается с глагола («Забрать посылку», «Позвони маме»)
+    или с существительного-дела («Отчёт», «Звонок бухгалтеру»), а не просто «Петров»."""
+    for word in TokenText.from_text(title).tokens:
+        if word.norm in LEADING_FILLERS or not re.search(r"[а-я]", word.norm):
+            continue
+        parses = analyzer().parse(word.norm)
+        top = parses[0]
+        if "INFN" in top.tag or "impr" in top.tag:
+            return True
+        return any(p.normal_form.replace("ё", "е") in TASK_LIKE_NOUNS for p in parses[:3])
+    return False
 
 
 def _parse_selection(norm: str) -> int | None:
@@ -201,6 +225,9 @@ class RuleBasedParser:
             return self._parse_update(tt, text, ctx)
         if kind in ("reminder", "create"):
             return self._parse_create(tt, kind, trigger, text, ctx)
+        # «завтра встреча с Иваном?» без «добавь/поставь» — вопрос, а не просьба создать.
+        if kind is None and not ctx.awaiting and text.rstrip().endswith("?"):
+            return self._parse_query(tt, "query", text, ctx)
 
         when = WhenExtractor(ctx.now).extract(tt)
         rest = self._rest(tt, when)
@@ -279,7 +306,7 @@ class RuleBasedParser:
 
         cmd = ParsedCommand(
             intent, raw_text=text, title=title or None, day=when.day, at=when.at, is_deadline=when.is_deadline,
-            duration_min=when.duration_min, recurrence=when.recurrence,
+            duration_min=when.duration_min, recurrence=when.recurrence, implicit=trigger is None,
         )
         # «до конца недели», «на следующей неделе» — дедлайн в последний день периода.
         if cmd.day is None and when.period is not None and intent == Intent.CREATE_TASK:

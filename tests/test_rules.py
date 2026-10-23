@@ -5,13 +5,13 @@ import pytest
 from app.core.commands import Direction, Intent
 from app.core.models import RecordType
 from app.nlu.rules import ParseContext, RuleBasedParser
-from tests.conftest import NOW
+from tests.conftest import FRIDAY, NOW
 
 parser = RuleBasedParser()
 
 
-def parse(text, awaiting=None):
-    return parser.parse(text, ParseContext(now=NOW, awaiting=awaiting))
+def parse(text, awaiting=None, now=NOW):
+    return parser.parse(text, ParseContext(now=now, awaiting=awaiting))
 
 
 def test_reminder_from_spec():
@@ -135,6 +135,34 @@ def test_help_and_unknown():
 def test_fillers_do_not_turn_list_into_search(text):
     cmd = parse(text)
     assert cmd.intent == Intent.LIST and cmd.period.start == NOW.date()
+
+
+@pytest.mark.parametrize("text, start, end", [
+    ("чё по планам на завтра", date(2026, 10, 24), date(2026, 10, 24)),
+    ("чо по делам сегодня", date(2026, 10, 23), date(2026, 10, 23)),
+    ("че по встречам завтра", date(2026, 10, 24), date(2026, 10, 24)),
+    ("что там на неделе?", date(2026, 10, 19), date(2026, 10, 25)),
+    ("завтра планы", date(2026, 10, 24), date(2026, 10, 24)),
+    ("какие дела на завтра", date(2026, 10, 24), date(2026, 10, 24)),
+])
+def test_colloquial_questions_are_lists(text, start, end):
+    cmd = parse(text, now=FRIDAY)
+    assert cmd.intent == Intent.LIST and (cmd.period.start, cmd.period.end) == (start, end)
+
+
+def test_question_mark_without_create_trigger_is_query():
+    assert parse("завтра встреча с Иваном?", now=FRIDAY).intent in (Intent.LIST, Intent.SEARCH)
+    assert parse("в пятницу Петров?", now=FRIDAY).intent in (Intent.LIST, Intent.SEARCH)
+    assert parse("добавь встречу с Иваном завтра в 10?", now=FRIDAY).intent == Intent.CREATE_MEETING
+
+
+def test_create_without_trigger_is_implicit():
+    cmd = parse("завтра Петров", now=FRIDAY)
+    assert cmd.intent == Intent.CREATE_TASK and cmd.implicit and (cmd.title, cmd.day) == ("Петров", date(2026, 10, 24))
+    cmd = parse("мне надо в субботу забрать посылку", now=FRIDAY)
+    assert cmd.intent == Intent.CREATE_TASK and not cmd.implicit
+    assert (cmd.title, cmd.day) == ("Забрать посылку", date(2026, 10, 24))
+    assert parse("каждый понедельник в 10 планёрка").implicit
 
 
 def test_more_update_forms():
