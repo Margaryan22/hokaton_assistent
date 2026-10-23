@@ -58,6 +58,33 @@ def test_meeting_conflict_offers_choice(clean_dialog):
     assert {r.at for r in records(clean_dialog)} == {time(15, 0), time(17, 0)}
 
 
+def test_new_command_with_own_title_is_not_an_answer(clean_dialog):
+    clean_dialog.say("Добавь встречу с командой завтра в 15:00")
+    assert clean_dialog.say("Добавь встречу с командой завтра в 15:30").awaiting == "confirm"
+    assert clean_dialog.say("нет").text == "Хорошо. На какое время тогда поставить?"
+    reply = clean_dialog.say("Каждый понедельник в 10 планёрка")
+    assert "Планёрка" in reply.text and reply.awaiting is None
+    saved = {(r.title, r.day, r.at, r.recurrence) for r in records(clean_dialog)}
+    assert saved == {
+        ("Встреча с командой", date(2026, 10, 14), time(15, 0), None),
+        ("Планёрка", date(2026, 10, 19), time(10, 0), Recurrence.WEEKLY),
+    }
+
+
+def test_create_verb_without_title_is_still_an_answer(clean_dialog):
+    assert clean_dialog.say("Поставь встречу с Иваном завтра").awaiting == "slot"
+    clean_dialog.say("поставь на 15:00")
+    (record,) = records(clean_dialog)
+    assert (record.title, record.day, record.at) == ("Встреча с Иваном", date(2026, 10, 14), time(15, 0))
+
+
+def test_reminder_time_answer(clean_dialog):
+    assert clean_dialog.say("напомни купить молоко").text == "Когда напомнить?"
+    clean_dialog.say("в 8 вечера")
+    (record,) = records(clean_dialog)
+    assert (record.type, record.title, record.at) == (RecordType.REMINDER, "Купить молоко", time(20, 0))
+
+
 def test_past_time_today_is_moved_to_tomorrow_on_confirm(clean_dialog):
     reply = clean_dialog.say("Напомни сегодня в 9 выпить витамины")
     assert "уже прошло" in reply.text

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -159,8 +160,9 @@ class Assistant:
                 return self._continue(cmd, pending, turn)
             draft = command_from_dict(pending["command"]) if pending.get("command") else None
             # «Поставь на 15:00» в ответ на «На какое время поставить встречу?» — это ответ, а не новая задача.
+            # А «Каждый понедельник в 10 планёрка» со своим содержанием — новая команда, черновик сбрасываем.
             if (pending["kind"] == "slot" and draft is not None and draft.intent in CREATE_INTENTS
-                    and cmd.intent in CREATE_INTENTS and (cmd.intent == draft.intent or not cmd.title)):
+                    and cmd.intent in CREATE_INTENTS and self._answers_slot(cmd, draft, pending.get("missing"))):
                 turn.clear_pending()
                 return self._create(self._merge(draft, cmd, pending.get("missing")), turn)
             turn.clear_pending()
@@ -198,6 +200,18 @@ class Assistant:
     def _ask(self, turn: Turn, kind: str, question: str, speech: str | None = None, **data: Any) -> Reply:
         turn.set_pending(kind, question, **data)
         return Reply(question, speech)
+
+    @staticmethod
+    def _answers_slot(cmd: ParsedCommand, draft: ParsedCommand, missing: str | None) -> bool:
+        """Новая фраза — ответ на уточнение, только если у неё нет своего содержания или оно то же, что в черновике."""
+        if missing == "title" or not cmd.title or not draft.title:
+            return True
+
+        def norm(s: str) -> str:
+            return " ".join(re.sub(r"[^\w\s-]", " ", s.lower().replace("ё", "е")).split())
+
+        new, old = norm(cmd.title), norm(draft.title)
+        return new == old or new in old or old in new
 
     @staticmethod
     def _merge(draft: ParsedCommand, answer: ParsedCommand, missing: str | None) -> ParsedCommand:
