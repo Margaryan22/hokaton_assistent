@@ -68,3 +68,6 @@
 {"text": "завтра Петров", "intent": "create_task", "title_has": ["петров"], "day": "2026-10-14"}
 {"text": "закинь на послезавтра созвон с Петровым часика в четыре", "intent": "create_meeting", "title_has": ["созвон", "петров"], "day": "2026-10-15", "at": "16:00"}
 {"text": "кинь на завтра где-то в 3 звонок бухгалтеру", "intent": "create_task", "title_has": ["звонок", "бухгалтер"], "day": "2026-10-14", "at": "15:00"}
+{"text": "найди задачу про отчёт", "intent": "search", "query_has": ["отчет"], "types": ["task"]}
+{"text": "Найди напоминание про договор", "intent": "search", "query_has": ["договор"], "types": ["reminder"]}
+{"text": "найди всё про хакатон", "intent": "search", "query_has": ["хакатон"], "types": []}

@@ -466,21 +466,28 @@ class Assistant:
             return self.planner.search(turn.user_id, query, now=turn.now, limit=None, **params)
 
         hits, relaxed = run(), ""
+        if not hits and types == {RecordType.TASK}:
+            # Пользователи часто зовут задачей и напоминание: «найди задачу про отчёт».
+            types = {RecordType.TASK, RecordType.REMINDER}
+            hits = run()
         if not hits and types:
+            types = None
             hits = run(types=None)
             relaxed = "Среди записей этого типа ничего нет, но нашлось похожее. " if hits else ""
         if not hits and (cmd.direction != Direction.ANY or cmd.period is not None):
+            types = None
             hits = run(types=None, direction=Direction.ANY, period=None)
             relaxed = "За этот период ничего нет, но нашлось в другое время. " if hits else ""
         yes_no = self._is_yes_no(cmd)
+        echo = self._query_echo(query)
         if not hits:
-            return Reply(("Нет. " if yes_no else "") + f"Ничего не нашёл по запросу «{query}».")
+            return Reply(("Нет. " if yes_no else "") + f"Ничего не нашёл по запросу «{echo}».")
 
         records = [h.record for h in hits]
         items = [Occurrence(r, r.day) for r in records[:MAX_ITEMS]]
         lines = [ph.occurrence_line(o, turn.today, with_date=True) for o in items[:MAX_LINES]]
-        if len(records) > MAX_LINES:
-            lines.append(f"…и ещё {len(records) - MAX_LINES}")
+        if len(items) > MAX_LINES:
+            lines.append(f"…и ещё {len(items) - MAX_LINES}")
         top = records[0]
         turn.remember(records, focus=top if len(records) == 1 or cmd.raw_text.lower().lstrip(" ,а").startswith("когда") else None)
 
@@ -494,11 +501,22 @@ class Assistant:
             return Reply(relaxed + answer + more + ("\n" + "\n".join(lines) if len(records) > 1 else ""),
                          relaxed + answer, items=items, summary=relaxed + answer + more)
 
-        head = f"{relaxed}{'Да, н' if yes_no else 'Н'}ашёл {ph.records_word(len(records))} по запросу «{query}»"
+        head = f"{relaxed}{'Да, н' if yes_no else 'Н'}ашёл {ph.found_word(len(records), types)} по запросу «{echo}»"
+        if len(records) > len(items):
+            order = "последних" if cmd.direction == Direction.PAST else "ближайших"
+            head += f", показываю {len(items)} {order}"
         spoken = [ph.occurrence_speech(o, turn.today, with_date=True) for o in items[:3]]
-        rest = len(records) - len(spoken)
+        rest = len(items) - len(spoken)
         speech = f"{head}: " + "; ".join(spoken) + (f"; и ещё {rest} — на экране." if rest > 0 else ".")
         return Reply(f"{head}:\n" + "\n".join(lines), speech, items=items, summary=f"{head}:")
+
+    @staticmethod
+    def _query_echo(query: str) -> str:
+        """«про презентацию» → «презентацию»: предлог в начале запроса в ответе не нужен."""
+        words = query.split()
+        while len(words) > 1 and words[0].lower().replace("ё", "е") in ("про", "по", "о", "об", "обо", "насчет"):
+            words.pop(0)
+        return " ".join(words)
 
     # --- изменение, удаление, выполнение ---------------------------------------
 

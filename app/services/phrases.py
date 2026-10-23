@@ -44,6 +44,17 @@ def records_word(n: int, types: set[RecordType] | None = None) -> str:
     return count_phrase(n, "запись", "записи", "записей")
 
 
+def found_word(n: int, types: set[RecordType] | None = None) -> str:
+    """Для «Нашёл …»: винительный падеж — «1 задачу», «1 встречу», «3 записи»."""
+    if types and len(types) == 1:
+        (only,) = types
+        names = TYPE_NAMES[only]
+        return count_phrase(n, names[1], names[2], names[3])
+    if types == {RecordType.TASK, RecordType.REMINDER}:
+        return count_phrase(n, "задачу", "задачи", "задач")
+    return count_phrase(n, "запись", "записи", "записей")
+
+
 def date_text(day: date, today: date, case: str = "nom") -> str:
     """«сегодня, 13 октября», «пятница, 16 октября», «3 марта 2025».
 

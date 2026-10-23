@@ -2,6 +2,7 @@ from datetime import date, time
 
 from app.core.models import Period, Recurrence, RecordType, Status
 from app.services.assistant import Assistant
+from app.services.phrases import found_word
 from app.storage.repository import DialogStateRepository
 from tests.conftest import FRIDAY, NOW, Dialog
 
@@ -148,6 +149,30 @@ def test_search_and_when_question(dialog):
     reply = dialog.say("Когда у меня была встреча с Иваном?")
     assert reply.text.startswith("Последний раз —")
     assert reply.items[0].record.type == RecordType.MEETING and reply.items[0].record.starts_at < NOW
+
+
+def test_search_respects_record_type(dialog):
+    reply = dialog.say("Найди задачу про презентацию")
+    assert reply.items and {o.record.type for o in reply.items} == {RecordType.TASK}
+    assert "по запросу «презентацию»" in reply.text and "«про " not in reply.text
+    reply = dialog.say("Найди напоминание про договор")
+    assert reply.items and {o.record.type for o in reply.items} == {RecordType.REMINDER}
+    reply = dialog.say("найди всё про хакатон")
+    assert len({o.record.type for o in reply.items}) > 1
+
+
+def test_search_says_how_many_are_shown(dialog):
+    reply = dialog.say("найди всё про хакатон")
+    found = len(dialog.container.planner.search("demo", "хакатон", now=NOW, limit=None))
+    assert found > len(reply.items) == 30
+    assert reply.text.startswith(f"Нашёл {found_word(found)} по запросу «хакатон», показываю 30 ближайших")
+
+
+def test_task_search_falls_back_to_reminders(clean_dialog):
+    clean_dialog.say("Напомни завтра в 10 сдать отчёт")
+    reply = clean_dialog.say("Найди задачу про отчёт")
+    assert [o.record.type for o in reply.items] == [RecordType.REMINDER]
+    assert reply.text.startswith("Нашёл 1 задачу по запросу «отчёт»")
 
 
 def test_delete_with_choice_and_confirmation(dialog):

@@ -346,6 +346,9 @@ class RuleBasedParser:
 
         if topic_tokens:
             query = self._query_text(rest)
+            if RecordType.TASK in types and not re.search(r"напоминани|напоминалк", norm):
+                # «Найди задачу про …» ищет задачи; напоминания — только если задач не нашлось (это решает ассистент).
+                types.discard(RecordType.REMINDER)
             return ParsedCommand(Intent.SEARCH, raw_text=text, query=query, record_types=types,
                                  direction=direction, period=period)
         return ParsedCommand(Intent.LIST, raw_text=text, record_types=types, period=period, direction=direction)

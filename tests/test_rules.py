@@ -67,9 +67,10 @@ def test_list_types_and_periods():
 
 
 @pytest.mark.parametrize("text, query, types, direction", [
-    ("Найди задачу про презентацию", "про презентацию", {RecordType.TASK, RecordType.REMINDER}, Direction.ANY),
+    ("Найди задачу про презентацию", "про презентацию", {RecordType.TASK}, Direction.ANY),
     ("Когда у меня была встреча с Иваном?", "с Иваном", {RecordType.MEETING}, Direction.PAST),
-    ("Я когда-то ставил задачу по договору, найди её", "по договору", {RecordType.TASK, RecordType.REMINDER}, Direction.ANY),
+    ("Я когда-то ставил задачу по договору, найди её", "по договору", {RecordType.TASK}, Direction.ANY),
+    ("Найди напоминание про договор", "про договор", {RecordType.REMINDER}, Direction.ANY),
 ])
 def test_search(text, query, types, direction):
     cmd = parse(text)
