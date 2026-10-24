@@ -291,3 +291,21 @@ def test_llm_delete_past_date_without_year(container, direction):
     assert reply.text == "Удалить напоминание «Оплатить связь» на вторник, 20 октября, в 09:00?", reply.text
     dialog.say("да")
     assert container.records.get("demo", past.id) is None
+
+
+@pytest.mark.parametrize("selection", [None, 0, 1])
+def test_llm_this_reminder_when_focus_is_meeting(empty_container, selection):
+    # В списке ближайших — встреча (в фокусе) и напоминание; модель иногда заполняет selection.
+    parser = LocalLLMParser("qwen3-4b-2507")
+    parser._llm, parser._grammar = ScriptedLlama({
+        "удали это напоминание": answer(intent="delete", types=["reminder"], refers=True, selection=selection),
+    }), "grammar"
+    empty_container.assistant.nlu = NLU(RuleBasedParser(), parser)
+    dialog = Dialog(empty_container, user="tester")
+    empty_container.assistant.nlu.llm = None  # создаём записи правилами
+    dialog.say("Добавь встречу с командой завтра в 9:00")
+    dialog.say("Напомни завтра в 10 позвонить Ивану")
+    dialog.say("что у меня будет?")
+    empty_container.assistant.nlu.llm = parser
+    reply = dialog.say("удали это напоминание")
+    assert reply.text == "Удалить напоминание «Позвонить Ивану» на завтра, 14 октября, в 10:00?", reply.text

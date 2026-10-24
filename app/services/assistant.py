@@ -545,26 +545,16 @@ class Assistant:
 
     def _resolve(self, cmd: ParsedCommand, turn: Turn) -> Record | Reply:
         verbs = {Intent.UPDATE: "изменить", Intent.DELETE: "удалить", Intent.COMPLETE: "отметить"}
+        named = types_from_text(simplify(cmd.raw_text))
         if cmd.refers_to_previous or (not cmd.query and cmd.period is None):
             ids = [turn.focus_id] if turn.focus_id and cmd.selection is None else turn.last_ids
             candidates = self.planner.get_many(turn.user_id, ids)
             if not candidates and ids:
                 # Запись, о которой шла речь, тем временем удалили (например, кнопкой в повестке).
                 return Reply("Эта запись уже удалена." if len(ids) == 1 else "Этих записей уже нет.")
-            named = types_from_text(simplify(cmd.raw_text))
-            if named and candidates and not any(r.type in named for r in candidates):
-                # «Удали это напоминание», а в фокусе встреча: ищем напоминание среди записей прошлого ответа,
-                # а если его там нет — переспрашиваем, а не удаляем встречу.
-                candidates = [r for r in self.planner.get_many(turn.user_id, turn.last_ids) if r.type in named]
-                if not candidates:
-                    which = {frozenset({RecordType.REMINDER}): "какое напоминание",
-                             frozenset({RecordType.MEETING}): "какую встречу",
-                             frozenset({RecordType.TASK, RecordType.REMINDER}): "какую задачу"}
-                    example = {Intent.UPDATE: "перенеси напоминание позвонить Ивану на пятницу",
-                               Intent.DELETE: "удали напоминание позвонить Ивану",
-                               Intent.COMPLETE: "отметь напоминание позвонить Ивану выполненным"}[cmd.intent]
-                    return Reply(f"Уточните, {which.get(frozenset(named), 'какую запись')} {verbs[cmd.intent]}. "
-                                 f"Например: «{example}».")
+            if candidates and not any(r.type in named for r in candidates) and named:
+                # «Удали это напоминание», а в фокусе встреча: ищем напоминание среди записей прошлого ответа.
+                candidates = self.planner.get_many(turn.user_id, turn.last_ids)
             if not candidates:
                 examples = {
                     Intent.UPDATE: "перенеси встречу с Иваном на пятницу",
@@ -577,6 +567,18 @@ class Assistant:
             if not candidates:
                 return self._not_found(cmd, turn)
 
+        if named:
+            # Тип, названный во фразе, сужает любой список кандидатов: «это напоминание» — не встреча.
+            candidates = [r for r in candidates if r.type in named]
+            if not candidates:
+                which = {frozenset({RecordType.REMINDER}): "какое напоминание",
+                         frozenset({RecordType.MEETING}): "какую встречу",
+                         frozenset({RecordType.TASK, RecordType.REMINDER}): "какую задачу"}
+                example = {Intent.UPDATE: "перенеси напоминание позвонить Ивану на пятницу",
+                           Intent.DELETE: "удали напоминание позвонить Ивану",
+                           Intent.COMPLETE: "отметь напоминание позвонить Ивану выполненным"}[cmd.intent]
+                return Reply(f"Уточните, {which.get(frozenset(named), 'какую запись')} {verbs[cmd.intent]}. "
+                             f"Например: «{example}».")
         if cmd.selection is not None:
             picked = self._pick(candidates, ParsedCommand(Intent.ANSWER, selection=cmd.selection), turn)
             if picked is not None:
