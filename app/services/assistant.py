@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import re
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
@@ -19,11 +20,14 @@ from app.core.commands import (
     CREATE_INTENTS, INTENT_TO_TYPE, Direction, Intent, ParsedCommand, command_from_dict, command_to_dict,
 )
 from app.core.models import Occurrence, Record, RecordType, Status
-from app.nlu.rules import THANKS_RE, looks_like_action
+from app.nlu.rules import THANKS_RE, looks_like_action, types_from_text
 from app.nlu.service import NLU
+from app.nlu.text import simplify
 from app.services import phrases as ph
 from app.services.planner import Planner
 from app.storage.repository import DialogStateRepository
+
+log = logging.getLogger(__name__)
 
 MAX_LIST_SPOKEN = 4
 MAX_CHOICES = 5
@@ -303,7 +307,14 @@ class Assistant:
             turn.clear_pending()
             return Reply("Хорошо, ничего не меняю.")
         candidates = self.planner.get_many(turn.user_id, pending["candidates"])
-        chosen = self._pick(candidates, cmd, turn)
+        if cmd.intent == Intent.CONFIRM:
+            # «Да» вместо номера: понятно, о какой речь, только если на ближайшей неделе она одна.
+            week = [r for r in candidates if r.occurrences(turn.today, turn.today + timedelta(days=6))]
+            if len(week) != 1:
+                return Reply("Назовите номер: первую, вторую…")
+            chosen = week[0]
+        else:
+            chosen = self._pick(candidates, cmd, turn)
         if chosen is None:
             return Reply(f"Не понял, какую именно. Назовите номер, например: «вторую».\n{pending['options']}",
                          "Не понял, какую именно. Назовите номер, например: вторую.",
@@ -521,6 +532,12 @@ class Assistant:
     # --- изменение, удаление, выполнение ---------------------------------------
 
     def _targeted(self, cmd: ParsedCommand, turn: Turn) -> Reply:
+        rules = cmd.fallback
+        if (rules is not None and not rules.refers_to_previous and not cmd.refers_to_previous
+                and not self._find_candidates(cmd, turn) and self._find_candidates(rules, turn)):
+            # По разбору модели запись не нашлась, а по разбору правил той же фразы — нашлась.
+            log.debug("Запись нашлась только по разбору правил: %s", rules)
+            cmd = rules
         resolved = self._resolve(cmd, turn)
         if isinstance(resolved, Reply):
             return resolved
@@ -531,6 +548,23 @@ class Assistant:
         if cmd.refers_to_previous or (not cmd.query and cmd.period is None):
             ids = [turn.focus_id] if turn.focus_id and cmd.selection is None else turn.last_ids
             candidates = self.planner.get_many(turn.user_id, ids)
+            if not candidates and ids:
+                # Запись, о которой шла речь, тем временем удалили (например, кнопкой в повестке).
+                return Reply("Эта запись уже удалена." if len(ids) == 1 else "Этих записей уже нет.")
+            named = types_from_text(simplify(cmd.raw_text))
+            if named and candidates and not any(r.type in named for r in candidates):
+                # «Удали это напоминание», а в фокусе встреча: ищем напоминание среди записей прошлого ответа,
+                # а если его там нет — переспрашиваем, а не удаляем встречу.
+                candidates = [r for r in self.planner.get_many(turn.user_id, turn.last_ids) if r.type in named]
+                if not candidates:
+                    which = {frozenset({RecordType.REMINDER}): "какое напоминание",
+                             frozenset({RecordType.MEETING}): "какую встречу",
+                             frozenset({RecordType.TASK, RecordType.REMINDER}): "какую задачу"}
+                    example = {Intent.UPDATE: "перенеси напоминание позвонить Ивану на пятницу",
+                               Intent.DELETE: "удали напоминание позвонить Ивану",
+                               Intent.COMPLETE: "отметь напоминание позвонить Ивану выполненным"}[cmd.intent]
+                    return Reply(f"Уточните, {which.get(frozenset(named), 'какую запись')} {verbs[cmd.intent]}. "
+                                 f"Например: «{example}».")
             if not candidates:
                 examples = {
                     Intent.UPDATE: "перенеси встречу с Иваном на пятницу",
@@ -541,8 +575,7 @@ class Assistant:
         else:
             candidates = self._find_candidates(cmd, turn)
             if not candidates:
-                about = f" по запросу «{cmd.query}»" if cmd.query else ""
-                return Reply(f"Не нашёл подходящую запись{about}.")
+                return self._not_found(cmd, turn)
 
         if cmd.selection is not None:
             picked = self._pick(candidates, ParsedCommand(Intent.ANSWER, selection=cmd.selection), turn)
@@ -562,11 +595,48 @@ class Assistant:
                      items=[Occurrence(r, r.day) for r in options],
                      summary=f"Нашёл несколько подходящих записей. Какую {verbs[cmd.intent]}?", numbered=True)
 
+    @staticmethod
+    def _not_found(cmd: ParsedCommand, turn: Turn) -> Reply:
+        """«Не нашёл напоминание «позвонить Ивану» во вторник, 27 октября» — и пример, как сказать иначе."""
+        types = cmd.record_types
+        if len(types) == 1:
+            what = ph.type_name(next(iter(types)), 1)
+        else:
+            what = "задачу" if types == {RecordType.TASK, RecordType.REMINDER} else "запись"
+        if cmd.query:
+            what += f" «{Assistant._query_echo(cmd.query)}»"
+        if cmd.period is not None:
+            what += f" {ph.period_text(cmd.period, turn.today)}"
+            if cmd.target_at is not None:
+                what += f", в {ph.time_text(cmd.target_at)}"
+        examples = {
+            Intent.UPDATE: "перенеси встречу с командой на пятницу",
+            Intent.DELETE: "удали напоминание позвонить Ивану",
+            Intent.COMPLETE: "отметь задачу про отчёт выполненной",
+        }
+        return Reply(f"Не нашёл {what}. Скажите, например: «{examples[cmd.intent]}».",
+                     f"Не нашёл {what}.")
+
     def _find_candidates(self, cmd: ParsedCommand, turn: Turn) -> list[Record]:
         types = cmd.record_types or None
+        if cmd.period is not None and cmd.target_at is not None:
+            # «Удали напоминание 26 октября в 12:00»: запись ровно в это время — та самая.
+            exact = list({o.record.id: o.record for o in self.planner.agenda(turn.user_id, cmd.period, types)
+                          if o.record.at == cmd.target_at}.values())
+            if cmd.query and exact:
+                exact = [h.record for h in self.planner.engine.search(exact, cmd.query, now=turn.now)]
+            if len(exact) == 1:
+                return exact
         if not cmd.query:
             occurrences = self.planner.agenda(turn.user_id, cmd.period, types)
             return list({o.record.id: o.record for o in occurrences}.values())
+        found = self._search_target(cmd, turn, types)
+        if not found and types and cmd.period is None and not types_from_text(simplify(cmd.raw_text)):
+            # Тип назвала модель, а не пользователь (и даты нет) — она могла спутать напоминание с задачей.
+            found = self._search_target(cmd, turn, None)
+        return found
+
+    def _search_target(self, cmd: ParsedCommand, turn: Turn, types: set[RecordType] | None) -> list[Record]:
         # Сначала ищем среди предстоящих (переносят и отмечают обычно их), затем среди всех.
         for direction in (Direction.FUTURE, Direction.ANY):
             hits = self.planner.search(turn.user_id, cmd.query, now=turn.now, keywords=cmd.keywords, types=types,

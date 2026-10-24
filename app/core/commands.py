@@ -60,8 +60,10 @@ class ParsedCommand:
     recurrence: Recurrence | None = None
     # Изменение: относительный сдвиг («на час позже»).
     shift_minutes: int | None = None
-    # Просмотр и поиск: интервал дат.
+    # Просмотр и поиск: интервал дат. Изменение/удаление: дата искомой записи.
     period: Period | None = None
+    # Изменение/удаление: время искомой записи («удали напоминание 26 октября в 12:00»).
+    target_at: time | None = None
     record_types: set[RecordType] = field(default_factory=set)
     # Поиск: текст запроса. Изменение/удаление: описание целевой записи.
     query: str | None = None
@@ -75,6 +77,8 @@ class ParsedCommand:
     source: str = "rules"
     # Создание угадано без явного триггера («завтра Петров»): ассистент может переспросить.
     implicit: bool = False
+    # Разбор правилами той же фразы: им ассистент ищет запись, если по разбору модели ничего не нашлось.
+    fallback: ParsedCommand | None = field(default=None, repr=False, compare=False)
 
     @property
     def has_when(self) -> bool:
@@ -94,6 +98,7 @@ def command_to_dict(cmd: ParsedCommand) -> dict:
         "recurrence": cmd.recurrence.value if cmd.recurrence else None,
         "shift_minutes": cmd.shift_minutes,
         "period": [cmd.period.start.isoformat(), cmd.period.end.isoformat(), cmd.period.label] if cmd.period else None,
+        "target_at": cmd.target_at.strftime("%H:%M") if cmd.target_at else None,
         "record_types": sorted(t.value for t in cmd.record_types),
         "query": cmd.query,
         "keywords": cmd.keywords,
@@ -118,6 +123,7 @@ def command_from_dict(data: dict) -> ParsedCommand:
         recurrence=Recurrence(data["recurrence"]) if data.get("recurrence") else None,
         shift_minutes=data.get("shift_minutes"),
         period=Period(date.fromisoformat(period[0]), date.fromisoformat(period[1]), period[2]) if period else None,
+        target_at=time.fromisoformat(data["target_at"]) if data.get("target_at") else None,
         record_types={RecordType(t) for t in data.get("record_types", [])},
         query=data.get("query"),
         keywords=list(data.get("keywords", [])),

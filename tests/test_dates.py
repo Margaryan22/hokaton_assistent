@@ -3,8 +3,9 @@ from datetime import date, time
 import pytest
 
 from app.core.models import Recurrence
-from app.nlu.dates import extract_when
-from tests.conftest import NOW
+from app.nlu.dates import extract_when, nearest_when
+from app.nlu.text import TokenText
+from tests.conftest import FRIDAY, NOW
 
 # NOW — вторник, 13 октября 2026, 12:00
 
@@ -86,3 +87,17 @@ def test_duration_and_shift_are_not_times():
     assert extract_when("на час позже", NOW).shift_minutes == 60
     assert extract_when("на 30 минут раньше", NOW).shift_minutes == -30
     assert extract_when("на 2 часа дня", NOW).at == time(14, 0)
+
+
+@pytest.mark.parametrize("text, start", [
+    # FRIDAY — пятница, 23 октября 2026: дата искомой записи.
+    ("в четверг", date(2026, 10, 29)),
+    ("вчера", date(2026, 10, 22)),
+    ("20 октября", date(2026, 10, 20)),
+    ("понедельник, 26 октября", date(2026, 10, 26)),
+    ("в сентябре", date(2026, 9, 1)),
+    ("5 ноября", date(2026, 11, 5)),
+])
+def test_nearest_when_for_existing_record(text, start):
+    when = nearest_when(TokenText.from_text(text), FRIDAY)
+    assert (when.day or when.period.start) == start

@@ -11,15 +11,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from app.core.commands import TARGETED_INTENTS, Direction, Intent, ParsedCommand
 from app.core.models import Period, RecordType
-from app.nlu.dates import When, WhenExtractor, mark_shifts
-from app.nlu.rules import has_topic, types_from_text
+from app.nlu.dates import When, WhenExtractor, mark_shifts, nearest_when
+from app.nlu.rules import ORDINALS, PRONOUNS, has_topic, types_from_text
 from app.nlu.text import TokenText, simplify
+
+log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """Ты — модуль понимания речи голосового ассистента-планировщика. Пользователь говорит по-русски, \
 текст получен распознаванием речи (возможны ошибки, нет пунктуации). Определи намерение и извлеки параметры. \
@@ -123,14 +126,16 @@ def _clean(value: Any) -> str | None:
     return value.strip() or None if isinstance(value, str) else None
 
 
-def _extract_when(text: str | None, now: datetime, prefer_past: bool, shifts: bool = False) -> tuple[When, str | None]:
-    """Вычисляет дату из фрагмента и возвращает остаток фрагмента без даты."""
+def _extract_when(text: str | None, now: datetime, prefer_past: bool, shifts: bool = False,
+                  nearest: bool = False) -> tuple[When, str | None]:
+    """Вычисляет дату из фрагмента и возвращает остаток фрагмента без даты.
+    `nearest` — дата существующей записи: ближайшая к сегодня, в прошлом или в будущем."""
     if not text:
         return When(), None
     tt = TokenText.from_text(text)
     if shifts:
         tt = mark_shifts(tt)
-    when = WhenExtractor(now, prefer_past).extract(tt)
+    when = nearest_when(tt, now) if nearest else WhenExtractor(now, prefer_past).extract(tt)
     consumed: set[int] = set()
     for start, end in when.spans:
         consumed |= tt.token_indices(start, end)
@@ -180,13 +185,42 @@ def to_command(data: dict[str, Any], raw_text: str, now: datetime, source: str =
     elif intent == Intent.CREATE_TASK and cmd.day is None and when.period is not None:
         cmd.day, cmd.is_deadline = when.period.end, True
     elif intent in TARGETED_INTENTS:
-        target_when, target_rest = _extract_when(_clean(data.get("target")), now, prefer_past=False)
-        cmd.query = target_rest
-        if target_when.day:
-            cmd.period = Period(target_when.day, target_when.day)
-        if not cmd.query and cmd.period is None:
-            cmd.refers_to_previous = True
+        _resolve_target(cmd, data, when, now)
+    log.debug("Разбор %s: %s → %s", source, json.dumps(data, ensure_ascii=False), cmd)
     return cmd
+
+
+def _resolve_target(cmd: ParsedCommand, data: dict[str, Any], when: When, now: datetime) -> None:
+    """Описание, дата и тип записи, которую меняют, удаляют или отмечают.
+
+    Модель раскладывает их по полям нестабильно: описание кладёт то в target, то в title,
+    дату — то в target, то в when, а напоминание называет задачей.
+    """
+    is_update = cmd.intent == Intent.UPDATE
+    # У изменения title — новое название, а не описание искомой записи.
+    target = _clean(data.get("target")) or (None if is_update else cmd.title) or _clean(data.get("query"))
+    # direction модели для даты не используем: она ставит past и для будущих записей.
+    target_when, target_rest = _extract_when(target, now, prefer_past=False, nearest=True)
+    day, period, at = target_when.day, target_when.period, target_when.at
+    if not is_update:
+        # Удаление и выполнение не назначают новое время, поэтому when — тоже дата искомой записи.
+        when, _ = _extract_when(_clean(data.get("when")), now, prefer_past=False, nearest=True)
+        if day is None and period is None:
+            day, period = when.day, when.period
+        at = at or when.at
+        cmd.title, cmd.day, cmd.at, cmd.is_deadline = None, None, None, False
+        cmd.duration_min, cmd.recurrence, cmd.shift_minutes = None, None, None
+    cmd.query = target_rest if target_rest and has_topic(target_rest) else None
+    cmd.period = Period(day, day) if day else period
+    cmd.target_at = at if cmd.period is not None else None
+    text_types = types_from_text(simplify(cmd.raw_text))
+    if text_types:
+        # «Удали напоминание…» — слово во фразе надёжнее типа, который назвала модель.
+        cmd.record_types = text_types
+    # Модель часто ставит refers без «её/эту» во фразе; верим ей, только если темы нет.
+    tokens = {t.norm for t in TokenText.from_text(cmd.raw_text).tokens}
+    points_back = bool(tokens & (PRONOUNS | set(ORDINALS)))
+    cmd.refers_to_previous = cmd.query is None and (cmd.period is None or points_back)
 
 
 def parse_json(raw: str) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 from datetime import date, time
 
-from app.core.models import Period, Recurrence, RecordType, Status
+from app.core.models import Period, Record, Recurrence, RecordType, Status
 from app.services.assistant import Assistant
 from app.services.phrases import found_word
 from app.storage.repository import DialogStateRepository
@@ -186,6 +186,41 @@ def test_delete_with_choice_and_confirmation(dialog):
     assert dialog.container.records.get("demo", chosen.id) is None
 
 
+def test_refers_to_record_deleted_from_agenda(clean_dialog):
+    clean_dialog.say("Напомни завтра в 10 позвонить Ивану")
+    (record,) = records(clean_dialog)
+    clean_dialog.container.planner.delete(record)  # так удаляет кнопка в повестке
+    assert clean_dialog.say("удали её").text == "Эта запись уже удалена."
+
+
+def test_pending_delete_of_record_deleted_from_agenda(clean_dialog):
+    clean_dialog.say("Напомни завтра в 10 позвонить Ивану")
+    assert clean_dialog.say("удали её").awaiting == "confirm"
+    clean_dialog.container.planner.delete(records(clean_dialog)[0])
+    assert clean_dialog.say("да").text == "Эта запись уже удалена."
+
+
+def maria_dialog(clean_dialog, *days):
+    for day in days:
+        clean_dialog.say(f"Поставь встречу с Марией {day} в 15:00")
+    reply = clean_dialog.say("Удали встречу с Марией")
+    assert reply.awaiting == "choose" and len(reply.items) == len(days)
+    return reply
+
+
+def test_yes_picks_the_only_record_in_next_week(clean_dialog):
+    maria_dialog(clean_dialog, "в пятницу", "20 ноября")
+    reply = clean_dialog.say("да")
+    assert reply.text == "Удалить встречу «Встреча с Марией» на пятницу, 16 октября, в 15:00?"
+
+
+def test_yes_to_choice_asks_for_number_without_repeating_list(clean_dialog):
+    maria_dialog(clean_dialog, "в пятницу", "в субботу")
+    reply = clean_dialog.say("да")
+    assert reply.text == "Назовите номер: первую, вторую…" and reply.awaiting == "choose" and not reply.items
+    assert clean_dialog.say("вторую").text.startswith("Удалить встречу «Встреча с Марией» на субботу")
+
+
 def test_complete_task(clean_dialog):
     clean_dialog.say("Поставь задачу купить билеты до конца недели")
     reply = clean_dialog.say("Отметь задачу про билеты выполненной")
@@ -227,3 +262,47 @@ def test_when_only_asks_what_to_do(clean_dialog):
 def test_small_talk(clean_dialog):
     assert clean_dialog.say("спасибо").text.startswith("Пожалуйста")
     assert "задачи" in clean_dialog.say("привет").text
+
+
+def past_records_dialog(clean_dialog):
+    dialog = Dialog(clean_dialog.container, user="tester", now=FRIDAY)
+    planner = dialog.container.planner
+    meeting = planner.create(Record(type=RecordType.MEETING, title="Встреча с командой", user_id="tester",
+                                    day=date(2026, 10, 22), at=time(15, 0)), FRIDAY)
+    reminder = planner.create(Record(type=RecordType.REMINDER, title="Оплатить связь", user_id="tester",
+                                     day=date(2026, 10, 20), at=time(9, 0)), FRIDAY)
+    return dialog, meeting, reminder
+
+
+def test_delete_yesterday_meeting(clean_dialog):
+    dialog, meeting, _ = past_records_dialog(clean_dialog)
+    assert dialog.say("удали вчерашнюю встречу").text.startswith("Удалить встречу «Встреча с командой» на вчера")
+    dialog.say("да")
+    assert dialog.container.records.get("tester", meeting.id) is None
+
+
+def test_delete_past_date_without_year_means_nearest(clean_dialog):
+    # 20 октября при «сегодня» 23-е — прошедшее 20-е, а не 20 октября следующего года.
+    dialog, _, reminder = past_records_dialog(clean_dialog)
+    reply = dialog.say("удали напоминание за 20 октября")
+    assert reply.text == "Удалить напоминание «Оплатить связь» на вторник, 20 октября, в 09:00?", reply.text
+    dialog.say("да")
+    assert dialog.container.records.get("tester", reminder.id) is None
+
+
+def test_this_reminder_when_focus_is_meeting(clean_dialog):
+    # Ближайшее — встреча (она в фокусе), но в списке есть и напоминание: «это напоминание» — оно.
+    clean_dialog.say("Добавь встречу с командой завтра в 9:00")
+    clean_dialog.say("Напомни завтра в 10 позвонить Ивану")
+    reply = clean_dialog.say("что у меня будет?")
+    assert reply.text.startswith("Ближайшее событие — завтра, 14 октября, в 09:00: «Встреча с командой»")
+    reply = clean_dialog.say("удали это напоминание")
+    assert reply.text == "Удалить напоминание «Позвонить Ивану» на завтра, 14 октября, в 10:00?", reply.text
+
+
+def test_this_reminder_without_reminder_in_context_asks(clean_dialog):
+    clean_dialog.say("Напомни завтра в 10 позвонить Ивану")
+    clean_dialog.say("Добавь встречу с командой завтра в 15:00")
+    reply = clean_dialog.say("удали это напоминание")
+    assert reply.awaiting is None and reply.text.startswith("Уточните, какое напоминание удалить")
+    assert len(records(clean_dialog)) == 2

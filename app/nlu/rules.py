@@ -15,7 +15,7 @@ from datetime import datetime, time
 
 from app.core.commands import Direction, Intent, ParsedCommand
 from app.core.models import Period, RecordType
-from app.nlu.dates import When, WhenExtractor, mark_shifts
+from app.nlu.dates import When, WhenExtractor, mark_shifts, nearest_when
 from app.nlu.text import Token, TokenText
 from app.search.engine import content_terms
 from app.search.morph import analyzer, lemma
@@ -375,7 +375,7 @@ class RuleBasedParser:
     # --- изменение, удаление, отметка о выполнении ----------------------------
 
     def _parse_targeted(self, tt: TokenText, intent: Intent, text: str, ctx: ParseContext) -> ParsedCommand:
-        when = WhenExtractor(ctx.now).extract(tt)
+        when = nearest_when(tt, ctx.now)
         rest = self._rest(tt, when, self._all_trigger_spans(tt))
         rest = [t for t in rest if t.norm not in COMPLETE_WORDS]
         return self._targeted_command(intent, text, rest, tt.text, when)
@@ -391,7 +391,8 @@ class RuleBasedParser:
         return ParsedCommand(
             intent, raw_text=text, query=self._query_text(rest) if topic else None,
             record_types=types_from_text(norm), refers_to_previous=refers or (not topic and period is None),
-            period=period, selection=_parse_selection(norm) if not topic else None,
+            period=period, target_at=target_when.at if target_when is not None and period is not None else None,
+            selection=_parse_selection(norm) if not topic else None,
         )
 
     def _parse_update(self, tt: TokenText, text: str, ctx: ParseContext) -> ParsedCommand:
@@ -417,7 +418,7 @@ class RuleBasedParser:
                 new_when = candidate
                 before_tokens = [tt.tokens[i] for i in sorted(tt.token_indices(0, split_at))]
                 before = TokenText(before_tokens)
-                target_when = WhenExtractor(ctx.now).extract(before)
+                target_when = nearest_when(before, ctx.now)
                 rest = self._rest(before, target_when, self._all_trigger_spans(before))
                 rest += self._rest(after, new_when, self._all_trigger_spans(after))
         if new_when is None:

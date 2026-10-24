@@ -532,3 +532,17 @@ def mark_shifts(tt: TokenText) -> TokenText:
 def extract_when(text: str | TokenText, now: datetime, prefer_past: bool = False) -> When:
     tt = text if isinstance(text, TokenText) else TokenText.from_text(text)
     return WhenExtractor(now, prefer_past).extract(tt)
+
+
+def nearest_when(tt: TokenText, now: datetime) -> When:
+    """Дата уже существующей записи («удали напоминание за 20 октября»). Обычно она впереди, но дата без года
+    или месяц, ушедшие в будущее больше чем на полгода, — это недавнее прошлое: 23 октября «20 октября» —
+    три дня назад, а не через год. День недели («в четверг») — всегда ближайший предстоящий."""
+    ahead = WhenExtractor(now).extract(tt)
+    behind = WhenExtractor(now, prefer_past=True).extract(tt)
+
+    def distance(when: When) -> int:
+        start = when.day or (when.period.start if when.period else None)
+        return abs((start - now.date()).days) if start else 0
+
+    return behind if distance(ahead) > 183 and distance(behind) < distance(ahead) else ahead
