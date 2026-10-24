@@ -159,6 +159,7 @@ async function loadAgenda() {
 }
 
 function renderAgenda(items) {
+  closeConfirm?.();
   const groups = new Map();
   for (const item of items) {
     const key = item.day || "none";
@@ -173,8 +174,10 @@ function renderAgenda(items) {
     list.forEach((item) => {
       const c = card(item);
       c.querySelector(".when").textContent = key === "none" ? "без срока" : item.time ? `${item.time}${item.recurrence ? " · повторяется" : ""}` : item.is_deadline ? "срок сегодня" : "весь день";
+      const actions = recordActions(item, c);
       c.classList.add("with-actions");
-      c.append(recordActions(item));
+      c.style.setProperty("--actions", String(actions.children.length));
+      c.append(actions);
       cards.append(c);
     });
     day.append(cards);
@@ -184,36 +187,78 @@ function renderAgenda(items) {
   els.agenda.replaceChildren(...nodes);
 }
 
-// Кнопки записи в повестке. Удаление подтверждается прямо в строке: «Удалить? Да / Нет».
-function recordActions(item) {
+// Контуры иконок — те же Material-образцы, что и у кнопок записи в index.html.
+const ICON_PATHS = {
+  complete: "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
+  delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+};
+
+function button(label, className, onClick) {
+  const node = el("button", className, label);
+  node.type = "button";
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+function iconButton(icon, label, className, onClick) {
+  const node = button("", className, onClick);
+  node.setAttribute("aria-label", label);
+  node.title = label;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", ICON_PATHS[icon]);
+  svg.append(path);
+  node.append(svg);
+  return node;
+}
+
+// Кнопки записи в повестке — иконки в углу карточки. Удаление подтверждается слоем поверх карточки.
+function recordActions(item, cardNode) {
   const box = el("div", "card-actions");
-  const button = (label, className, onClick) => {
-    const node = el("button", className, label);
-    node.type = "button";
-    node.addEventListener("click", onClick);
-    return node;
-  };
-  const idle = () => {
-    box.classList.remove("confirming");
-    const nodes = [];
-    if (item.type !== "meeting" && item.status !== "done") {
-      nodes.push(button("✓ Выполнено", "", () => recordAction(item, "complete")));
-    }
-    nodes.push(button("🗑 Удалить", "danger", ask));
-    box.replaceChildren(...nodes);
-  };
-  const ask = () => {
-    box.classList.add("confirming");
-    const no = button("Нет", "", () => { idle(); box.querySelector(".danger")?.focus(); });
-    box.replaceChildren(
-      el("span", "confirm-text", item.recurrence ? "Удалить всю серию?" : "Удалить?"),
-      button("Да", "danger", () => recordAction(item, "delete")),
-      no,
-    );
-    no.focus();
-  };
-  idle();
+  if (item.type !== "meeting" && item.status !== "done") {
+    box.append(iconButton("complete", "Отметить выполненным", "", () => recordAction(item, "complete")));
+  }
+  const remove = iconButton("delete", "Удалить", "danger", () => confirmDelete(item, cardNode, remove));
+  box.append(remove);
   return box;
+}
+
+// Закрывает открытое подтверждение удаления; одновременно открыто не больше одного.
+let closeConfirm = null;
+
+function confirmDelete(item, cardNode, opener) {
+  closeConfirm?.();
+  const question = item.recurrence ? "Удалить всю серию?" : `Удалить «${item.title}»?`;
+  const text = el("span", "confirm-text", question);
+  text.title = question;
+  const yes = button("Да", "danger", () => { detach(); yes.disabled = no.disabled = true; recordAction(item, "delete"); });
+  const no = button("Нет", "", () => close({ refocus: true }));
+  const buttons = el("div", "confirm-buttons");
+  buttons.append(yes, no);
+  const layer = el("div", "card-confirm");
+  layer.setAttribute("role", "group");
+  layer.setAttribute("aria-label", question);
+  layer.append(text, buttons);
+
+  const onKey = (event) => { if (event.key === "Escape") close({ refocus: true }); };
+  const onOutside = (event) => { if (!layer.contains(event.target)) close(); };
+  const detach = () => {
+    document.removeEventListener("keydown", onKey);
+    document.removeEventListener("pointerdown", onOutside, true);
+    closeConfirm = null;
+  };
+  const close = ({ refocus = false } = {}) => {
+    detach();
+    layer.remove();
+    if (refocus) opener.focus();
+  };
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("pointerdown", onOutside, true);
+  closeConfirm = close;
+  cardNode.append(layer);
+  no.focus();
 }
 
 async function recordAction(item, action) {
@@ -496,8 +541,8 @@ document.querySelectorAll(".tabs button").forEach((tab) => tab.addEventListener(
 }));
 document.addEventListener("keydown", (event) => {
   if (event.isComposing) return;
-  // На кнопке панели записи или повестки Enter и пробел нажимают саму кнопку (например, ✕ или «Удалить»).
-  const onRecorderButton = Boolean(event.target.closest?.(".rec-btn, .card-actions"));
+  // На кнопке панели записи или повестки Enter и пробел нажимают саму кнопку (например, ✕ или «Да» в подтверждении).
+  const onRecorderButton = Boolean(event.target.closest?.(".rec-btn, .card-actions, .card-confirm"));
   if (event.key === "Escape") {
     if (handleInput("escape")) event.preventDefault();
   } else if (event.key === "Enter" && !onRecorderButton) {

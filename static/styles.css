@@ -15,6 +15,7 @@
   --danger: #e03131;
   --shadow: 0 1px 2px rgba(20, 25, 45, .06), 0 4px 16px rgba(20, 25, 45, .06);
   --radius: 14px;
+  --radius-card: 11px;
   color-scheme: light;
 }
 
@@ -144,35 +145,61 @@ button, input { font: inherit; color: inherit; }
 .cards { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 
 .card {
-  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline;
-  padding: 9px 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: baseline;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface);
 }
-.card .badge { grid-row: span 2; align-self: center; }
-.card .title { font-weight: 550; }
-.card .when { font-size: 13px; color: var(--muted); }
+.card .badge { grid-row: span 2; align-self: center; justify-self: start; }
+.card .title { min-width: 0; font-weight: 550; overflow-wrap: break-word; }
+.card .when { min-width: 0; font-size: 13px; color: var(--muted); overflow-wrap: break-word; }
 .card.done .title { text-decoration: line-through; color: var(--muted); }
 
-/* Кнопки записи в повестке: видны при наведении и фокусе, на сенсорных экранах — всегда. */
-.card.with-actions { grid-template-columns: auto 1fr auto; }
+/* Кнопки записи в повестке не участвуют в раскладке: лежат в углу карточки поверх неё.
+   Видны при наведении и фокусе; на сенсорных экранах — всегда, и тогда у карточки зарезервировано место. */
+.card.with-actions { position: relative; }
 .card-actions {
-  grid-column: 3; grid-row: 1 / span 2; align-self: center;
-  display: flex; align-items: center; gap: 6px; opacity: 0; transition: opacity .12s;
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  display: flex; gap: 4px; opacity: 0; transition: opacity .12s;
+  /* Подложка цвета карточки: мягкий ореол в пределах 8px, чтобы не наползать на рамку. */
+  background: var(--surface); box-shadow: 0 0 5px 3px var(--surface);
 }
-.card:hover .card-actions, .card:focus-within .card-actions, .card-actions.confirming { opacity: 1; }
+.card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 .card-actions button {
-  min-height: 30px; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 12px; white-space: nowrap;
+  width: 28px; height: 28px; padding: 0; flex: none; display: grid; place-items: center;
+  border-radius: var(--radius-card); border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--task); cursor: pointer;
 }
 .card-actions button.danger { color: var(--danger); }
-.card-actions.confirming button.danger { background: var(--danger); border-color: transparent; color: #fff; }
-.card-actions .confirm-text { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.card-actions button:hover { border-color: currentColor; }
+.card-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card-actions svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
 @media (hover: none) {
   .card-actions { opacity: 1; }
+  /* 8px от края + кнопки (28px, между ними 4px) + 8px зазор до текста; число кнопок задаёт --actions. */
+  .card.with-actions { padding-right: calc(12px + var(--actions, 2) * 32px); }
 }
-@media (max-width: 520px) {
-  .card.with-actions { grid-template-columns: auto 1fr; }
-  .card-actions { grid-column: 1 / -1; grid-row: auto; justify-content: flex-end; }
+
+/* Подтверждение удаления накрывает карточку целиком и не меняет её размер. */
+.card-confirm {
+  position: absolute; inset: -1px; z-index: 2; border-radius: inherit;
+  display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  background: var(--surface); border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
 }
+.card-confirm .confirm-text {
+  flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.card-confirm .confirm-buttons { display: flex; gap: 6px; flex: none; }
+.card-confirm button {
+  height: 28px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--surface); cursor: pointer; font-size: 13px; line-height: 1;
+}
+.card-confirm button:hover { border-color: var(--muted); }
+.card-confirm button.danger { background: var(--danger); border-color: transparent; color: #fff; }
+.card-confirm button.danger:hover { filter: brightness(1.08); }
+.card-confirm button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card-confirm button:disabled { opacity: .6; cursor: default; }
 
 .badge {
   font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; white-space: nowrap;
