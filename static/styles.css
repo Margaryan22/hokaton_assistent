@@ -152,6 +152,28 @@ button, input { font: inherit; color: inherit; }
 .card .when { font-size: 13px; color: var(--muted); }
 .card.done .title { text-decoration: line-through; color: var(--muted); }
 
+/* Кнопки записи в повестке: видны при наведении и фокусе, на сенсорных экранах — всегда. */
+.card.with-actions { grid-template-columns: auto 1fr auto; }
+.card-actions {
+  grid-column: 3; grid-row: 1 / span 2; align-self: center;
+  display: flex; align-items: center; gap: 6px; opacity: 0; transition: opacity .12s;
+}
+.card:hover .card-actions, .card:focus-within .card-actions, .card-actions.confirming { opacity: 1; }
+.card-actions button {
+  min-height: 30px; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.card-actions button.danger { color: var(--danger); }
+.card-actions.confirming button.danger { background: var(--danger); border-color: transparent; color: #fff; }
+.card-actions .confirm-text { font-size: 12px; font-weight: 600; white-space: nowrap; }
+@media (hover: none) {
+  .card-actions { opacity: 1; }
+}
+@media (max-width: 520px) {
+  .card.with-actions { grid-template-columns: auto 1fr; }
+  .card-actions { grid-column: 1 / -1; grid-row: auto; justify-content: flex-end; }
+}
+
 .badge {
   font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; white-space: nowrap;
   color: var(--surface); background: var(--muted);
@@ -277,6 +299,7 @@ button, input { font: inherit; color: inherit; }
 }
 .toast strong { display: block; margin-bottom: 2px; }
 .toast.error { border-left-color: var(--danger); }
+.toast.info { border-left-color: var(--task); }
 .toast-actions { display: flex; gap: 8px; margin-top: 10px; }
 .toast-actions button {
   min-height: 36px; padding: 6px 14px; border-radius: 9px; border: 1px solid var(--border);

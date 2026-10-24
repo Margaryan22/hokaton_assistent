@@ -42,3 +42,29 @@ def test_calendar_export(client):
 
 def test_index_page(client):
     assert "Голосовой планировщик" in client.get("/").text
+
+
+def agenda_ids(client, user_id):
+    items = client.get("/api/agenda", params={"user_id": user_id, "start": "2026-10-01", "end": "2026-12-31"}).json()["items"]
+    return {item["id"]: item for item in items}
+
+
+def create(client, user_id, text):
+    body = client.post("/api/chat", json={"text": text, "session_id": f"s-{user_id}", "user_id": user_id}).json()
+    return body["items"][0]["id"]
+
+
+def test_delete_record(client):
+    record_id = create(client, "api", "Каждый понедельник в 10 планёрка")
+    assert client.delete(f"/api/records/{record_id}", params={"user_id": "other"}).status_code == 404
+    response = client.delete(f"/api/records/{record_id}", params={"user_id": "api"})
+    assert response.status_code == 204 and record_id not in agenda_ids(client, "api")
+    assert client.delete(f"/api/records/{record_id}", params={"user_id": "api"}).status_code == 404
+
+
+def test_complete_record(client):
+    record_id = create(client, "api", "Поставь задачу купить молоко до конца декабря")
+    assert client.post(f"/api/records/{record_id}/complete", params={"user_id": "other"}).status_code == 404
+    body = client.post(f"/api/records/{record_id}/complete", params={"user_id": "api"}).json()
+    assert body["id"] == record_id and body["status"] == "done"
+    assert client.post("/api/records/999999/complete", params={"user_id": "api"}).status_code == 404

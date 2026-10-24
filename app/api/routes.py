@@ -69,6 +69,31 @@ def search(
     return [ItemOut.from_occurrence(Occurrence(h.record, h.record.day), now.date()) for h in hits]
 
 
+@router.delete("/records/{record_id}", status_code=204)
+def delete_record(record_id: int, user_id: str = USER_ID, c: Container = Depends(get_container)) -> Response:
+    """Удаление из повестки; повторяющаяся запись удаляется целиком, со всей серией."""
+    record = c.records.get(user_id, record_id)
+    if record is None:
+        raise HTTPException(404, "Запись не найдена")
+    c.planner.delete(record)
+    return Response(status_code=204)
+
+
+@router.post("/records/{record_id}/complete", response_model=ItemOut)
+def complete_record(
+    record_id: int,
+    user_id: str = USER_ID,
+    tz: str | None = TIMEZONE,
+    c: Container = Depends(get_container),
+) -> ItemOut:
+    now = c.now(tz)
+    record = c.records.get(user_id, record_id)
+    if record is None:
+        raise HTTPException(404, "Запись не найдена")
+    record = c.planner.complete(record, now)
+    return ItemOut.from_occurrence(Occurrence(record, record.day), now.date())
+
+
 @router.get("/reminders/due", response_model=list[ItemOut])
 def due_reminders(
     since: datetime,

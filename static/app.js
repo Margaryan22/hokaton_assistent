@@ -95,7 +95,7 @@ async function api(path, options = {}) {
     ...options,
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  return response.status === 204 ? null : response.json();
 }
 
 async function send(text, viaVoice = false) {
@@ -173,6 +173,8 @@ function renderAgenda(items) {
     list.forEach((item) => {
       const c = card(item);
       c.querySelector(".when").textContent = key === "none" ? "без срока" : item.time ? `${item.time}${item.recurrence ? " · повторяется" : ""}` : item.is_deadline ? "срок сегодня" : "весь день";
+      c.classList.add("with-actions");
+      c.append(recordActions(item));
       cards.append(c);
     });
     day.append(cards);
@@ -182,10 +184,55 @@ function renderAgenda(items) {
   els.agenda.replaceChildren(...nodes);
 }
 
+// Кнопки записи в повестке. Удаление подтверждается прямо в строке: «Удалить? Да / Нет».
+function recordActions(item) {
+  const box = el("div", "card-actions");
+  const button = (label, className, onClick) => {
+    const node = el("button", className, label);
+    node.type = "button";
+    node.addEventListener("click", onClick);
+    return node;
+  };
+  const idle = () => {
+    box.classList.remove("confirming");
+    const nodes = [];
+    if (item.type !== "meeting" && item.status !== "done") {
+      nodes.push(button("✓ Выполнено", "", () => recordAction(item, "complete")));
+    }
+    nodes.push(button("🗑 Удалить", "danger", ask));
+    box.replaceChildren(...nodes);
+  };
+  const ask = () => {
+    box.classList.add("confirming");
+    const no = button("Нет", "", () => { idle(); box.querySelector(".danger")?.focus(); });
+    box.replaceChildren(
+      el("span", "confirm-text", item.recurrence ? "Удалить всю серию?" : "Удалить?"),
+      button("Да", "danger", () => recordAction(item, "delete")),
+      no,
+    );
+    no.focus();
+  };
+  idle();
+  return box;
+}
+
+async function recordAction(item, action) {
+  const path = `/api/records/${item.id}${action === "complete" ? "/complete" : ""}?user_id=${encodeURIComponent(userId())}&tz=${encodeURIComponent(timezone)}`;
+  try {
+    await api(path, { method: action === "complete" ? "POST" : "DELETE" });
+    toast(action === "complete" ? "Выполнено:" : "Удалено:", item.title, [], { kind: "info", timeout: 4000 });
+  } catch (error) {
+    toast("Не получилось", "Запись могла быть уже удалена. Повестка обновлена.", [], { kind: "info", timeout: 6000 });
+    console.error(error);
+  }
+  loadAgenda();
+  loadStatus();
+}
+
 // --- напоминания -------------------------------------------------------------
 
-function toast(title, body, actions = []) {
-  const node = el("div", `toast${actions.length ? " error" : ""}`);
+function toast(title, body, actions = [], { kind = "", timeout = 0 } = {}) {
+  const node = el("div", `toast${actions.length ? " error" : ""}${kind ? ` ${kind}` : ""}`);
   node.append(el("strong", "", title), el("span", "", body));
   if (actions.length) {
     const row = el("div", "toast-actions");
@@ -198,7 +245,7 @@ function toast(title, body, actions = []) {
     node.append(row);
   }
   els.toasts.append(node);
-  setTimeout(() => node.remove(), actions.length ? 60000 : 15000);
+  setTimeout(() => node.remove(), timeout || (actions.length ? 60000 : 15000));
   return node;
 }
 
@@ -449,8 +496,8 @@ document.querySelectorAll(".tabs button").forEach((tab) => tab.addEventListener(
 }));
 document.addEventListener("keydown", (event) => {
   if (event.isComposing) return;
-  // На кнопке панели записи Enter и пробел нажимают саму кнопку (например, ✕).
-  const onRecorderButton = Boolean(event.target.closest?.(".rec-btn"));
+  // На кнопке панели записи или повестки Enter и пробел нажимают саму кнопку (например, ✕ или «Удалить»).
+  const onRecorderButton = Boolean(event.target.closest?.(".rec-btn, .card-actions"));
   if (event.key === "Escape") {
     if (handleInput("escape")) event.preventDefault();
   } else if (event.key === "Enter" && !onRecorderButton) {
